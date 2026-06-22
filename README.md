@@ -1,98 +1,55 @@
-# AWS SSO Credential Process Helper (Improved)
+# awssso — AWS SSO Credential Process Helper
 
-A fast CLI tool for AWS SSO authentication and credential management. Provides interactive workflows for logging in, switching accounts/roles, managing profiles, and exporting credentials for DevOps tools.
+A fast, single-binary CLI tool for AWS SSO authentication and credential management. Built for cloud engineers who manage multiple AWS accounts and identities via SSO.
 
-## Improvements Over Original
+## Features
 
-This is a refactored version with the following improvements applied:
+- **Multi-identity SSO** — multiple sessions sharing one start URL, each with a different email identity
+- **Private browser mode** (`--private`) — opens incognito/InPrivate window for clean auth flows
+- **Interactive account/role switching** — browse accounts, pick roles, auto-create profiles
+- **`credential_process` compatible** — use as a credential helper in `~/.aws/config`
+- **AWS Console federation** — open the Management Console pre-authenticated
+- **Credential export** — output credentials for Terraform, Docker, JSON, YAML, or shell env vars
+- **Smart token refresh** — OIDC `refresh_token` when available, device auth fallback otherwise
+- **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
+- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging, 🟢 dev) with production safety prompts
+- **Profile suggestions** — typo-tolerant profile name matching via Levenshtein distance
+- **Cross-platform** — Windows, macOS, and Linux via build tags
 
-### 1. Code Structure & Organization
-- **Split `main.go`** into focused files: `commands.go` (command handlers), `util.go` (utility functions), keeping `main.go` slim (CLI setup + usage only)
-- Each file has a clear, single responsibility
-- Shared helper `resolveValidToken` eliminates repeated token-load-refresh boilerplate across commands
-- Centralized AWS SDK client factories (`newSSOClient`, `newOIDCClient`, `newAWSConfig`) in `sso.go`
+## Installation
 
-### 2. Consistent Error Handling
-- All error output now uses `printError()` / `printInfo()` / `printWarning()` consistently
-- No more mixing raw `fmt.Fprintf(os.Stderr, ...)` with pretty-printed helpers
-
-### 3. Removed Redundant `min()` Function
-- Go 1.21+ has a built-in `min()` — the custom shadow is removed
-- Manual insertion sorts replaced with stdlib `slices.Sort` / `slices.SortFunc`
-
-### 4. Platform Portability (Build Tags)
-- `ui.go` uses `//go:build windows` for Windows-specific terminal init
-- `ui_other.go` provides a no-op `initTerminal()` for macOS/Linux
-- `browser_windows.go` / `browser_other.go` abstract browser opening per platform
-- Both `openBrowser(url)` and `openBrowserPrivate(url)` are platform-specific
-- Private mode tries Edge InPrivate → Chrome Incognito → Firefox Private → fallback
-- The tool now compiles and runs on any OS
-
-### 5. Improved Test Coverage
-- `loadAWSConfigFromPath(path)` is testable without touching real `~/.aws/config`
-- Tests for: config parsing, token expiry, hash path computation, environment detection, export formatting, Levenshtein distance, account filtering, profile suggestions, selection parsing
-- Fixed the original test which had dead code and an incorrect expected hash
-
-### 6. Performance: Cached `os.UserHomeDir()`
-- A `homeDir()` function caches the user home directory to avoid repeated syscalls
-- All file-path resolution functions use the cached version
-
-### 6. Race Condition Awareness
-- Sessions are deduplicated by key in `refreshAllSessions` before parallel refresh
-- Each session maps to a unique token file path, so parallel goroutines don't race on the same file
-
-### 7. Context Timeouts Added
-- `runLogin`: 5 minute timeout
-- `runSwitch`: 5 minute timeout  
-- `runRefresh`: 5 minute timeout
-- `runCredential`, `runExport`: 30 second timeout
-- `runConsole`: 45 second timeout
-
-### 8. Fixed `credential_process` Path Quoting
-- Paths and profile names are now quoted to handle spaces correctly:
-  ```ini
-  credential_process = "C:\\Program Files\\awssso.exe" credential --profile "my profile"
-  ```
-
-### 9. Fixed Typo
-- "OIDc" → "OIDC" in the refresh header
-
-### 10. Removed Orphaned `package.json`
-- Not included in the improved project (it only contained an unrelated AI tool dependency)
-
-### 11. Dashboard Uses Lipgloss Consistently
-- Removed raw ANSI constants from the bubbletea `View()` method
-- All styling in the dashboard now uses lipgloss styles for consistent rendering
-
-### 12. Signal Handling Note
-- Production warning prompts use `showProductionWarning()` which returns false on non-"yes" input (including EOF from Ctrl+C)
-
-## File Structure
-
-```
-improved/
-├── main.go              # CLI entry point, flag parsing, usage text
-├── commands.go          # Command handlers + shared helpers (resolveValidToken, loadProfile, etc.)
-├── awsconfig.go         # AWS config parsing, token cache, profile CRUD, homeDir cache
-├── sso.go              # SSO OIDC login, token refresh, role credentials, console, SDK client factories
-├── cloudeng.go         # Environment detection, recent profiles, export formats
-├── dashboard.go        # Interactive TUI dashboard (bubbletea)
-├── util.go             # Utility functions (formatting, Levenshtein, filtering)
-├── ui.go               # Terminal UI helpers (Windows, build-tagged)
-├── ui_other.go         # Terminal UI helpers (non-Windows, build-tagged)
-├── browser_windows.go  # Browser open + InPrivate (Windows)
-├── browser_other.go    # Browser open + incognito (macOS/Linux)
-├── awsconfig_test.go   # Tests for config parsing, token paths, multi-session
-├── cloudeng_test.go    # Tests for environment detection and export
-├── util_test.go        # Tests for utilities
-├── go.mod
-└── go.sum
+```bash
+# Clone and build
+git clone https://github.com/chukul/awssso.git
+cd awssso
+go build -o awssso.exe   # Windows
+go build -o awssso       # macOS/Linux
 ```
 
-## Build
+Place the binary anywhere in your `PATH`.
+
+### Requirements
+
+- Go 1.21+ (uses built-in `min()` and `slices` package)
+- AWS SSO configured in `~/.aws/config`
+
+## Quick Start
 
 ```powershell
-go build -o awssso.exe
+# 1. Login to your SSO profile
+awssso login --profile my-profile
+
+# 2. Check your identity
+awssso whoami
+
+# 3. Switch to a different account/role
+awssso switch
+
+# 4. Export credentials for Terraform
+awssso export --profile prod --format terraform
+
+# 5. Open AWS Console directly
+awssso console --profile my-profile
 ```
 
 ## Commands
@@ -101,19 +58,70 @@ go build -o awssso.exe
 |---------|-------------|
 | `login` | Authenticate via AWS SSO and cache credentials |
 | `switch` | Interactively select an AWS account/role and create a profile |
-| `credential` | Output temporary AWS credentials (for `credential_process`) |
+| `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
 | `console` | Open AWS Management Console in browser, pre-authenticated |
-| `whoami` | Display current identity and SSO token status |
-| `profiles` | List, inspect, and manage AWS SSO profiles |
-| `sessions` | List all SSO sessions with identity info and status |
-| `refresh` | Refresh expired (or valid with `--force`) SSO tokens |
-| `quick` | Quickly switch between recently used profiles |
-| `export` | Export credentials for env, terraform, docker, json, yaml |
+| `whoami` | Display current profile, account, role, and SSO token status |
+| `profiles` | List all profiles and set one as active (`AWS_PROFILE`) |
+| `delete` | Delete one or more profiles (interactive or by name) |
+| `sessions` | List all SSO sessions with identity info and token status |
+| `refresh` | Refresh expired SSO tokens (all, by profile, or by session) |
+| `quick` | Quick switch between recently used profiles |
+| `export` | Export credentials in multiple formats |
 | `dashboard` | Interactive TUI session management dashboard |
+
+## Options
+
+| Flag | Applies To | Description |
+|------|-----------|-------------|
+| `--profile <name>` | Most commands | AWS profile name (defaults to `$AWS_PROFILE` or `default`) |
+| `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session (multi-identity) |
+| `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
+| `--format <fmt>` | `export` | Output format: `env`, `terraform`, `docker`, `json`, `yaml`, `credential_process` |
+| `--force` | `refresh` | Refresh even valid tokens (proactive refresh) |
+
+## Configuration
+
+Profiles must have SSO configuration in `~/.aws/config` using one of these patterns:
+
+### Using `sso_session` (recommended)
+
+```ini
+[sso-session my-sso]
+sso_start_url = https://d-123456789.awsapps.com/start/
+sso_region = eu-west-1
+
+[profile my-profile]
+sso_session = my-sso
+sso_account_id = 123456789012
+sso_role_name = AdministratorAccess
+region = eu-west-1
+```
+
+### Using inline SSO settings (legacy, auto-migrated)
+
+```ini
+[profile my-profile]
+sso_start_url = https://d-123456789.awsapps.com/start/
+sso_region = eu-west-1
+sso_account_id = 123456789012
+sso_role_name = AdministratorAccess
+region = eu-west-1
+```
+
+When creating new profiles via `switch` or `login`, the tool automatically converts inline SSO to `sso-session` format.
+
+### Using as `credential_process`
+
+```ini
+[profile my-profile]
+credential_process = "C:\path\to\awssso.exe" credential --profile "my-profile"
+```
+
+The `credential` command outputs JSON compatible with the AWS SDK credential process protocol. Tokens are auto-refreshed transparently.
 
 ## Multi-Identity / Multi-Session Support
 
-A key feature of this improved version: you can have multiple SSO sessions pointing to the **same Start URL** but authenticating as **different email identities**.
+For teams where multiple people (or the same person with multiple roles) share one SSO start URL but need to authenticate as different identities:
 
 ### Configuration
 
@@ -143,40 +151,116 @@ region = us-east-1
 
 ### How It Works
 
-- Each `[sso-session]` gets its own token cache (SHA1 of the session **name**, not the URL)
-- The optional `sso_account_email` field tells the CLI which identity belongs to which session
-- During login, the CLI shows which identity you should authenticate as
-- You can be logged into both sessions simultaneously
+1. Each `[sso-session]` gets its own token cache (SHA1 hash of session **name**, not URL)
+2. The `sso_account_email` field tells the CLI which identity belongs to which session
+3. During login, the CLI displays which email you should authenticate as
+4. You can be logged into multiple sessions simultaneously
 
 ### Usage
 
 ```powershell
-# Login to a specific session (shows identity hint)
-awssso login --session team-alpha
-
-# Login in private/incognito browser (recommended for multi-identity)
+# Login to a specific session in private browser (recommended)
 awssso login --session team-alpha --private
 
-# Refresh a specific session
-awssso refresh --session team-beta
+# Login to another identity
+awssso login --session team-beta --private
 
-# Refresh in private browser if re-auth is needed
-awssso refresh --session team-beta --private
+# Switch accounts using a specific identity
+awssso switch --session team-alpha --private
 
-# List all sessions with identity and shared-URL info
+# List all sessions with identity and status info
 awssso sessions
 
-# Login via profile (automatically resolves the correct session)
-awssso login --profile alpha-dev
-
-# Switch accounts using a specific identity in private mode
-awssso switch --session team-alpha --private
+# Refresh a specific session
+awssso refresh --session team-beta --private --force
 ```
 
-### Tips for Multi-Identity Workflows
+### Why `--private` Matters
 
-1. **Use `--private` flag**: Opens incognito/InPrivate window — no cached cookies means you always get a fresh login prompt for the correct identity
-2. **Use browser profiles**: Alternatively, create a separate Chrome/Edge profile for each AWS identity
-3. **Track identities**: Add `sso_account_email` to your `[sso-session]` blocks — the CLI will remind you which identity to use
-4. **Session independence**: Token caches are separate (hashed by session name), so logging into one session won't affect the other
-5. **Combine flags**: `awssso login --session team-alpha --private` gives you both identity hint and clean browser in one command
+Without `--private`, your default browser opens with existing cookies and may auto-authenticate as the wrong identity. With `--private`:
+- A fresh incognito/InPrivate window opens with no cached session
+- You get a clean login prompt where you choose the correct email
+- Each session gets an isolated auth flow
+
+Browser detection order:
+- **Windows**: Edge (InPrivate) → Chrome (Incognito) → Firefox (Private) → default browser
+- **macOS**: Chrome (Incognito) → Firefox (Private) → default browser
+- **Linux**: Chrome/Chromium (Incognito) → Firefox (Private) → xdg-open
+
+## Export Formats
+
+```powershell
+# Shell environment variables (PowerShell/Bash)
+awssso export --profile my-profile --format env
+
+# Terraform environment variables
+awssso export --profile my-profile --format terraform
+
+# Docker environment (for docker run --env-file)
+awssso export --profile my-profile --format docker
+
+# Raw JSON
+awssso export --profile my-profile --format json
+
+# YAML
+awssso export --profile my-profile --format yaml
+
+# credential_process config line
+awssso export --profile my-profile --format credential_process
+```
+
+## Interactive Dashboard
+
+```powershell
+awssso dashboard
+```
+
+A full-screen TUI showing all SSO sessions with real-time status. Keyboard shortcuts:
+- `↑`/`↓` — navigate sessions
+- `r` — refresh selected session
+- `l` — login to selected session
+- `q` / `Esc` — quit
+
+## Project Structure
+
+```
+├── main.go              # CLI entry point: flag parsing, command dispatch, usage
+├── commands.go          # Command handlers + shared helpers (resolveValidToken, etc.)
+├── awsconfig.go         # ~/.aws/config parsing, token cache, profile/session CRUD
+├── sso.go              # AWS SSO OIDC login, token refresh, role credentials, console
+├── cloudeng.go         # Environment detection, recent profiles, export formats
+├── dashboard.go        # Interactive TUI dashboard (bubbletea)
+├── util.go             # Utility functions (formatting, Levenshtein, filtering)
+├── ui.go               # Terminal UI helpers (Windows, build-tagged)
+├── ui_other.go         # Terminal UI helpers (macOS/Linux, build-tagged)
+├── browser_windows.go  # Browser open + InPrivate (Windows)
+├── browser_other.go    # Browser open + incognito (macOS/Linux)
+├── *_test.go           # Tests (config parsing, token paths, env detection, utilities)
+├── go.mod / go.sum     # Module definition
+└── .kiro/steering/     # AI assistant steering rules
+```
+
+## Development
+
+```bash
+# Build
+go build -o awssso.exe
+
+# Run tests
+go test ./...
+
+# Static analysis
+go vet ./...
+```
+
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `github.com/aws/aws-sdk-go-v2` | AWS SDK (SSO, SSOOIDC, Signin) |
+| `github.com/charmbracelet/bubbletea` | Interactive TUI framework |
+| `github.com/charmbracelet/lipgloss` | Terminal styling |
+
+## License
+
+Internal tool — not publicly licensed.
