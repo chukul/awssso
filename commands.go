@@ -43,25 +43,78 @@ func resolveValidToken(ctx context.Context, profile *AWSProfile, config *AWSConf
 	return token, ssoRegion, nil
 }
 
-// needsPrivateBrowser returns true if the profile's session shares its start URL
-// with other sessions (multi-identity scenario). In that case, a private/incognito
-// browser is needed to avoid authenticating with the wrong cached identity.
+// needsPrivateBrowser returns true if the profile's session requires a private browser.
+// Logic:
+//  1. sso_login_private = true → always private
+//  2. sso_login_private = false → never private
+//  3. Auto-detect: when multiple sessions share the same URL with different emails,
+//     the FIRST session alphabetically is the "default" (no private needed).
+//     All others get private mode.
 func needsPrivateBrowser(config *AWSConfig, profile *AWSProfile) bool {
-	startURL := resolveStartURL(profile, config)
+	if profile.SSOSession == "" {
+		return false
+	}
+
+	sess, found := config.Sessions[profile.SSOSession]
+	if !found {
+		return false
+	}
+
+	// Explicit override
+	if sess.LoginPrivate == "true" {
+		return true
+	}
+	if sess.LoginPrivate == "false" {
+		return false
+	}
+
+	// Auto-detect: find all sessions sharing the same start URL
+	startURL := sess.SSOStartURL
 	if startURL == "" {
 		return false
 	}
 
-	// Count how many sessions use this same start URL
-	count := 0
-	for _, sess := range config.Sessions {
-		if sess.SSOStartURL == startURL {
-			count++
+	type peer struct {
+		name  string
+		email string
+	}
+	var peers []peer
+	for name, other := range config.Sessions {
+		if other.SSOStartURL == startURL {
+			peers = append(peers, peer{name: name, email: other.SSOAccountEmail})
 		}
 	}
 
-	// If more than one session shares the URL, we need private mode
-	return count > 1
+	// Single session on this URL — no conflict
+	if len(peers) <= 1 {
+		return false
+	}
+
+	// Check if there are actually different emails
+	hasConflict := false
+	for _, p := range peers {
+		if p.email != "" && p.email != sess.SSOAccountEmail {
+			hasConflict = true
+			break
+		}
+	}
+	if !hasConflict {
+		return false
+	}
+
+	// Multiple sessions with different emails — first alphabetically is the "default"
+	slices.SortFunc(peers, func(a, b peer) int {
+		if a.name < b.name {
+			return -1
+		}
+		if a.name > b.name {
+			return 1
+		}
+		return 0
+	})
+
+	// If this session is the first → default browser identity, no private needed
+	return peers[0].name != profile.SSOSession
 }
 
 // getProfileName resolves the effective profile name from flag, env, or default.

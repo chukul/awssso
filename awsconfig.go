@@ -29,6 +29,7 @@ type SSOSession struct {
 	SSOStartURL     string
 	SSORegion       string
 	SSOAccountEmail string // Optional: tracks which identity/email is used for this session
+	LoginPrivate    string // Optional: "true"/"false" — override auto-detection for private browser
 }
 
 // SSOToken represents cached SSO token data stored in ~/.aws/sso/cache/.
@@ -201,6 +202,8 @@ func loadAWSConfigFromPath(configPath string) (*AWSConfig, error) {
 				currentSession.SSORegion = val
 			case "sso_account_email":
 				currentSession.SSOAccountEmail = val
+			case "sso_login_private":
+				currentSession.LoginPrivate = val
 			}
 		}
 	}
