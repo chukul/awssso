@@ -43,6 +43,27 @@ func resolveValidToken(ctx context.Context, profile *AWSProfile, config *AWSConf
 	return token, ssoRegion, nil
 }
 
+// needsPrivateBrowser returns true if the profile's session shares its start URL
+// with other sessions (multi-identity scenario). In that case, a private/incognito
+// browser is needed to avoid authenticating with the wrong cached identity.
+func needsPrivateBrowser(config *AWSConfig, profile *AWSProfile) bool {
+	startURL := resolveStartURL(profile, config)
+	if startURL == "" {
+		return false
+	}
+
+	// Count how many sessions use this same start URL
+	count := 0
+	for _, sess := range config.Sessions {
+		if sess.SSOStartURL == startURL {
+			count++
+		}
+	}
+
+	// If more than one session shares the URL, we need private mode
+	return count > 1
+}
+
 // getProfileName resolves the effective profile name from flag, env, or default.
 func getProfileName(flagProfile string) string {
 	if flagProfile != "" {
@@ -603,7 +624,7 @@ func runConsole(profileName string) {
 	fmt.Printf("  %sRole:%s    %s\n", Dim, Reset, profile.SSORoleName)
 	fmt.Printf("  %sRegion:%s  %s\n\n", Dim, Reset, profile.Region)
 
-	// Try to resolve token — if expired/missing, auto-login with private browser
+	// Try to resolve token — if expired/missing, auto-login
 	token, ssoRegion, err := resolveValidToken(ctx, profile, config)
 	if err != nil {
 		printWarning("Session expired or not logged in — initiating login...")
@@ -624,8 +645,14 @@ func runConsole(profileName string) {
 			os.Exit(1)
 		}
 
-		// Auto-login with private mode for multi-identity safety
-		token, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, sessionName, emailHint, true)
+		// Use private mode only when this session's start URL is shared with other sessions
+		// (multi-identity scenario). If it's the only session using the URL, default browser is fine.
+		usePrivate := needsPrivateBrowser(config, profile)
+		if usePrivate {
+			printInfo(fmt.Sprintf("Multi-identity detected — opening private browser for: %s", emailHint))
+		}
+
+		token, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, sessionName, emailHint, usePrivate)
 		if err != nil {
 			printError(fmt.Sprintf("Login failed: %v", err))
 			os.Exit(1)
@@ -805,7 +832,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 
 	// Display picker
 	printHeader("OPEN AWS CONSOLE — SELECT PROFILE")
-	fmt.Printf("  %sProfiles marked [Expired] or [Not Logged In] will auto-login in private browser.%s\n", Dim, Reset)
+	fmt.Printf("  %sExpired sessions will auto-login (private browser for multi-identity sessions).%s\n", Dim, Reset)
 
 	globalIdx := 0
 	flatRows := []profileRow{}
