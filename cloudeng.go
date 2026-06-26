@@ -81,19 +81,19 @@ func showProductionWarning(profile *AWSProfile) bool {
 	}
 
 	fmt.Println()
-	printWarning(fmt.Sprintf("%s PRODUCTION ENVIRONMENT DETECTED %s", strings.Repeat("⚠", 3), strings.Repeat("⚠", 3)))
-	fmt.Printf("  %sProfile:%s    %s\n", Dim, Reset, profile.Name)
-	fmt.Printf("  %sAccount:%s   %s\n", Dim, Reset, profile.SSOAccountID)
-	fmt.Printf("  %sRole:%s      %s\n", Dim, Reset, profile.SSORoleName)
+	fmt.Printf("  %s🔴 Production%s  %s%s%s  (%s / %s)\n",
+		Red, Reset,
+		Bold, profile.Name, Reset,
+		profile.SSOAccountID, profile.SSORoleName)
 	fmt.Println()
-	printPrompt("Are you sure you want to proceed in PRODUCTION? (yes/no): ")
+	printPrompt("Continue? (y/N): ")
 
 	var response string
 	fmt.Scanln(&response)
 
 	response = strings.ToLower(strings.TrimSpace(response))
 	if response != "yes" && response != "y" {
-		printInfo("Operation canceled")
+		printInfo("Canceled")
 		return false
 	}
 	return true
