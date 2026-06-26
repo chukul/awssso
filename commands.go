@@ -572,9 +572,6 @@ func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileNam
 }
 
 func runConsole(profileName string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
 	config, err := loadAWSConfig()
 	if err != nil {
 		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
@@ -598,15 +595,43 @@ func runConsole(profileName string) {
 		os.Exit(0)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	printHeader(fmt.Sprintf("AWS CONSOLE - PROFILE: %s", profileName))
 	fmt.Printf("  %sAccount:%s %s\n", Dim, Reset, profile.SSOAccountID)
 	fmt.Printf("  %sRole:%s    %s\n", Dim, Reset, profile.SSORoleName)
 	fmt.Printf("  %sRegion:%s  %s\n\n", Dim, Reset, profile.Region)
 
+	// Try to resolve token — if expired/missing, auto-login with private browser
 	token, ssoRegion, err := resolveValidToken(ctx, profile, config)
 	if err != nil {
-		printError(err.Error())
-		os.Exit(1)
+		printWarning("Session expired or not logged in — initiating login...")
+
+		sessionName := profile.SSOSession
+		emailHint := ""
+		if sessionName != "" {
+			if sess, found := config.Sessions[sessionName]; found {
+				emailHint = sess.SSOAccountEmail
+			}
+		}
+
+		startURL := resolveStartURL(profile, config)
+		ssoRegion = resolveSSORegion(profile, config, nil)
+		cachePath, pathErr := getSSOTokenPath(profile, config)
+		if pathErr != nil {
+			printError(fmt.Sprintf("Failed to resolve token path: %v", pathErr))
+			os.Exit(1)
+		}
+
+		// Auto-login with private mode for multi-identity safety
+		token, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, sessionName, emailHint, true)
+		if err != nil {
+			printError(fmt.Sprintf("Login failed: %v", err))
+			os.Exit(1)
+		}
+		printSuccess("Logged in successfully!")
+		fmt.Println()
 	}
 
 	credSpinner := NewSpinner("Fetching temporary credentials")
@@ -628,16 +653,18 @@ func runConsole(profileName string) {
 }
 
 // pickProfileForConsole shows a grouped, interactive profile picker for the console command.
+// Displays session status (Active/Expired/Not Logged In) for each profile.
 // Returns the selected profile name, or empty string if cancelled.
 func pickProfileForConsole(config *AWSConfig) string {
-	// Only include profiles that have SSO config (can actually open a console)
 	type profileRow struct {
-		name    string
-		id      string
-		role    string
-		region  string
-		env     string
-		session string
+		name      string
+		id        string
+		role      string
+		region    string
+		env       string
+		session   string
+		status    string
+		remaining string
 	}
 
 	var allRows []profileRow
@@ -649,13 +676,44 @@ func pickProfileForConsole(config *AWSConfig) string {
 		if session == "" && p.SSOStartURL != "" {
 			session = "(inline)"
 		}
+
+		status := "No SSO"
+		remaining := ""
+		if p.SSOSession != "" || p.SSOStartURL != "" {
+			mockProfile := &AWSProfile{}
+			if p.SSOSession != "" {
+				mockProfile.SSOSession = p.SSOSession
+			} else {
+				mockProfile.SSOStartURL = p.SSOStartURL
+			}
+			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
+				if token, err := readSSOToken(tokenPath); err == nil {
+					if token.IsExpired() {
+						status = "Expired"
+						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
+							remaining = fmt.Sprintf("Expired %s ago", formatDuration(time.Since(parsed)))
+						}
+					} else {
+						status = "Active"
+						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
+							remaining = fmt.Sprintf("%s left", formatDuration(time.Until(parsed)))
+						}
+					}
+				} else {
+					status = "Not Logged In"
+				}
+			}
+		}
+
 		allRows = append(allRows, profileRow{
-			name:    name,
-			id:      p.SSOAccountID,
-			role:    p.SSORoleName,
-			region:  p.Region,
-			env:     detectEnvironment(p),
-			session: session,
+			name:      name,
+			id:        p.SSOAccountID,
+			role:      p.SSORoleName,
+			region:    p.Region,
+			env:       detectEnvironment(p),
+			session:   session,
+			status:    status,
+			remaining: remaining,
 		})
 	}
 
@@ -669,6 +727,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 	type sessionGroup struct {
 		session string
 		email   string
+		status  string
 		rows    []profileRow
 	}
 	groupMap := make(map[string]*sessionGroup)
@@ -727,19 +786,49 @@ func pickProfileForConsole(config *AWSConfig) string {
 		})
 	}
 
+	// Determine session-level status
+	for _, key := range groupOrder {
+		g := groupMap[key]
+		best := "No SSO"
+		for _, r := range g.rows {
+			if r.status == "Active" {
+				best = "Active"
+				break
+			} else if r.status == "Expired" && best != "Active" {
+				best = "Expired"
+			} else if r.status == "Not Logged In" && best == "No SSO" {
+				best = "Not Logged In"
+			}
+		}
+		g.status = best
+	}
+
 	// Display picker
 	printHeader("OPEN AWS CONSOLE — SELECT PROFILE")
+	fmt.Printf("  %sProfiles marked [Expired] or [Not Logged In] will auto-login in private browser.%s\n", Dim, Reset)
+
 	globalIdx := 0
 	flatRows := []profileRow{}
 
 	for _, key := range groupOrder {
 		g := groupMap[key]
 
+		sessionStatusColor := Dim
+		switch g.status {
+		case "Active":
+			sessionStatusColor = Green
+		case "Expired":
+			sessionStatusColor = Yellow
+		case "Not Logged In":
+			sessionStatusColor = Red
+		}
+
 		sessionLabel := g.session
 		if g.email != "" {
 			sessionLabel = fmt.Sprintf("%s %s(%s)%s", g.session, Magenta, g.email, Reset)
 		}
-		fmt.Printf("\n  %s┌─ Session: %s%s%s\n", Dim, Reset+Bold, sessionLabel, Reset)
+		fmt.Printf("\n  %s┌─ Session: %s%s  [%s%s%s]%s\n",
+			Dim, Reset+Bold, sessionLabel, sessionStatusColor, g.status, Reset, Reset)
 
 		for _, r := range g.rows {
 			globalIdx++
@@ -750,11 +839,28 @@ func pickProfileForConsole(config *AWSConfig) string {
 				envSymbol = getEnvironmentSymbol(r.env) + " "
 			}
 
-			fmt.Printf("  %s│%s   %s[%d]%s %s%-28s%s %s%s / %s  (%s)%s\n",
+			statusColor := Dim
+			switch r.status {
+			case "Active":
+				statusColor = Green
+			case "Expired":
+				statusColor = Yellow
+			case "Not Logged In":
+				statusColor = Red
+			}
+
+			remainingStr := ""
+			if r.remaining != "" {
+				remainingStr = fmt.Sprintf(" %s%s%s", Dim, r.remaining, Reset)
+			}
+
+			fmt.Printf("  %s│%s   %s[%d]%s %s%-26s%s %s[%s%s%s]%s%s  %s%s / %s (%s)%s\n",
 				Dim, Reset,
 				Cyan, globalIdx, Reset,
 				envSymbol,
 				Bold+r.name+Reset, "",
+				Dim, statusColor, r.status, Reset, Dim,
+				remainingStr,
 				Dim, r.id, r.role, r.region, Reset)
 		}
 		fmt.Printf("  %s└─%s\n", Dim, Reset)
