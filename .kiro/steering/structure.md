@@ -1,22 +1,20 @@
 # Project Structure
 
-## Root-Level Codebase
-
 All source files live at the repository root. Single `main` package compiling to one binary.
 
 ```
 awssso/
 ├── main.go              # CLI entry point: flag parsing, command dispatch, usage text
-├── commands.go          # Command handlers + shared helpers (resolveValidToken, etc.)
-├── awsconfig.go         # AWS config file parsing, token cache, profile/session CRUD, homeDir cache
-├── sso.go              # SSO OIDC login, token refresh, role credentials, console URL, SDK client factories
-├── cloudeng.go         # Environment detection, recent profiles, credential export formats
-├── dashboard.go        # Interactive TUI dashboard (bubbletea model/view/update)
+├── commands.go          # Command handlers + shared helpers
+├── awsconfig.go         # AWS config parsing, token cache, profile/session CRUD, homeDir cache
+├── sso.go              # SSO OIDC login, token refresh, credentials, console, SDK client factories
+├── cloudeng.go         # Environment detection, recent profiles, export formats, production warning
+├── dashboard.go        # Interactive TUI dashboard (bubbletea)
 ├── util.go             # Pure utility functions (formatting, Levenshtein, filtering, parsing)
 ├── ui.go               # Terminal UI helpers — Windows (build-tagged)
 ├── ui_other.go         # Terminal UI helpers — non-Windows (build-tagged)
-├── browser_windows.go  # Browser open + private/InPrivate — Windows (build-tagged)
-├── browser_other.go    # Browser open + private/incognito — macOS/Linux (build-tagged)
+├── browser_windows.go  # openBrowser + openBrowserPrivate — Windows
+├── browser_other.go    # openBrowser + openBrowserPrivate — macOS/Linux
 ├── awsconfig_test.go   # Tests for config parsing, token paths, multi-session
 ├── cloudeng_test.go    # Tests for environment detection and export
 ├── util_test.go        # Tests for utility functions
@@ -28,31 +26,29 @@ awssso/
 
 ## File Responsibilities
 
-| File | Single Responsibility |
-|------|----------------------|
-| `main.go` | Only CLI setup — flag sets, dispatch switch, usage text |
-| `commands.go` | All user-facing command logic; shared helpers like `resolveValidToken` |
-| `awsconfig.go` | INI parsing/writing of `~/.aws/config`; token cache read/write; `homeDir()` cache |
-| `sso.go` | Network calls to AWS SSO/OIDC endpoints; `newSSOClient`/`newOIDCClient` factories |
-| `cloudeng.go` | Non-network utilities specific to cloud engineering workflows |
-| `util.go` | Generic helpers with no AWS or domain knowledge |
-| `ui.go` / `ui_other.go` | Terminal output formatting, spinner, ANSI constants |
-| `browser_windows.go` | `openBrowser` (default) + `openBrowserPrivate` (Edge InPrivate → Chrome Incognito → Firefox Private) |
-| `browser_other.go` | Same API, macOS/Linux implementations |
+| File | Responsibility |
+|------|---------------|
+| `main.go` | CLI setup — flag sets, dispatch, usage text only |
+| `commands.go` | Command handlers + helpers: `resolveValidToken`, `needsPrivateBrowser`, `loadProfile`, `pickProfileForConsole` |
+| `awsconfig.go` | INI parsing/writing; token cache; `homeDir()` cache; `SSOSession.LoginPrivate` field |
+| `sso.go` | AWS SSO/OIDC network calls; `newSSOClient`/`newOIDCClient` factories; `loginSSOWithHint` |
+| `cloudeng.go` | `detectEnvironment`, `showProductionWarning`, `recordRecentProfile`, `exportCredentials` |
+| `util.go` | Generic helpers (no AWS knowledge): formatting, Levenshtein, filtering |
+| `browser_*.go` | Platform-specific: `openBrowser` + `openBrowserPrivate` (Edge/Chrome/Firefox detection) |
 | `dashboard.go` | Self-contained bubbletea TUI |
 
 ## Key Shared Helpers
 
 | Function | Location | Purpose |
 |----------|----------|---------|
-| `resolveValidToken` | `commands.go` | Load + validate + auto-refresh SSO token in one call |
+| `resolveValidToken` | `commands.go` | Load + validate + auto-refresh SSO token |
+| `needsPrivateBrowser` | `commands.go` | Auto-detect if profile needs private browser (multi-identity) |
+| `pickProfileForConsole` | `commands.go` | Grouped interactive profile picker with status |
 | `newSSOClient` / `newOIDCClient` | `sso.go` | Centralized AWS SDK client creation |
-| `homeDir` | `awsconfig.go` | Cached `os.UserHomeDir()` — use instead of calling directly |
-| `loadProfile` | `commands.go` | Lookup profile + validate SSO config + suggest alternatives |
-| `openBrowser` | `browser_*.go` | Open URL in default browser |
-| `openBrowserPrivate` | `browser_*.go` | Open URL in incognito/InPrivate window |
-| `loginSSOWithHint` | `sso.go` | SSO device auth with session/email hints + private browser support |
+| `homeDir` | `awsconfig.go` | Cached `os.UserHomeDir()` |
+| `loginSSOWithHint` | `sso.go` | SSO device auth with session/email hints + private flag |
+| `showProductionWarning` | `cloudeng.go` | Calm single-line production confirmation |
 
-## Architecture Pattern
+## Architecture
 
-Single `main` package — no internal packages or sub-modules. All code compiles to one binary. File separation is by domain concern, not by Go package boundary.
+Single `main` package. File separation by domain concern. No internal packages.

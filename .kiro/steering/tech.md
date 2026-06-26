@@ -17,7 +17,7 @@
 ## Build & Test Commands
 
 ```powershell
-# Build (from improved/)
+# Build
 go build -o awssso.exe
 
 # Run all tests
@@ -33,36 +33,31 @@ go test -v -run TestLoadAWSConfigFromPath ./...
 go vet ./...
 ```
 
-## Project Layout
-
-There are two versions in this repo:
-- **Root directory** (`/`): Original monolithic implementation (legacy, not actively developed)
-- **`/improved`**: Refactored version with proper file separation — this is the active development target
-
-The `improved/` directory is the active development target. Use module name `awssso` (defined in `improved/go.mod`).
-
 ## Platform Build Tags
 
-- `//go:build windows` — `ui.go`, `browser_windows.go` (Windows terminal init, browser open via `rundll32`, InPrivate via `msedge`/`chrome`)
-- `//go:build !windows` — `ui_other.go`, `browser_other.go` (no-op terminal init, `xdg-open`/`open` for browser, incognito via Chrome/Firefox)
+- `//go:build windows` — `ui.go`, `browser_windows.go`
+- `//go:build !windows` — `ui_other.go`, `browser_other.go`
 
 ## Code Conventions
 
-- Use `homeDir()` (cached) instead of raw `os.UserHomeDir()` — avoids redundant syscalls
-- Use `newSSOClient(region)` / `newOIDCClient(region)` / `newAWSConfig(region)` to create AWS SDK clients — centralizes SDK configuration
-- Use `resolveValidToken(ctx, profile, config)` to load + validate + auto-refresh a token — avoids repeating the load→read→check→refresh boilerplate
-- Use `openBrowser(url)` for default browser, `openBrowserPrivate(url)` for incognito/InPrivate mode
-- Use stdlib `slices.Sort` / `slices.SortFunc` for sorting (Go 1.21+ builtins available)
-- Use `printError()` / `printInfo()` / `printWarning()` / `printSuccess()` for all user-facing output — never raw `fmt.Fprintf(os.Stderr, ...)`
-- Use `NewSpinner(msg)` for long-running operations with visual feedback
-- All context-bound operations should use `context.WithTimeout` with appropriate timeouts
+- Use `homeDir()` (cached) instead of raw `os.UserHomeDir()`
+- Use `newSSOClient(region)` / `newOIDCClient(region)` to create AWS SDK clients
+- Use `resolveValidToken(ctx, profile, config)` to load + validate + auto-refresh a token
+- Use `needsPrivateBrowser(config, profile)` to determine if private mode is needed
+- Use `openBrowser(url)` for default browser, `openBrowserPrivate(url)` for incognito
+- Use stdlib `slices.Sort` / `slices.SortFunc` for sorting
+- Use `printError()` / `printInfo()` / `printWarning()` / `printSuccess()` for all user output
+- Use `NewSpinner(msg)` for long-running operations
+- All context-bound operations should use `context.WithTimeout`
+- Production warnings should be calm and single-line, not alarming
+- Interactive pickers should group items by session and sort by environment priority
 
 ## Testing Approach
 
 - Standard `testing` package (no third-party test framework)
 - Table-driven tests preferred
-- Testable config loading via `loadAWSConfigFromPath(path)` to avoid touching real `~/.aws/config`
-- Tests cover: config parsing, token expiry, hash path computation, environment detection, export formatting, Levenshtein distance, account filtering, profile suggestions, selection parsing
+- Testable config loading via `loadAWSConfigFromPath(path)`
+- Tests cover: config parsing, token expiry, hash paths, environment detection, export formatting, Levenshtein distance, account filtering, profile suggestions, selection parsing
 
 ## No External Build Tools
 
