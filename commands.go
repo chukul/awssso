@@ -581,22 +581,15 @@ func runConsole(profileName string) {
 		os.Exit(1)
 	}
 
-	// If no explicit --profile was given (or it resolves to "default" without SSO),
-	// show interactive profile picker grouped by session.
+	// If no explicit --profile was given, show interactive profile picker.
 	if profileName == "" {
-		profileName = getProfileName(profileName)
-	}
-	profile, ok := config.Profiles[profileName]
-	needsPicker := !ok || (profile.SSOAccountID == "" && profileName == "default")
-
-	if needsPicker {
 		profileName = pickProfileForConsole(config)
 		if profileName == "" {
 			return
 		}
 	}
 
-	profile, err = loadProfile(config, profileName)
+	profile, err := loadProfile(config, profileName)
 	if err != nil {
 		os.Exit(1)
 	}
