@@ -1030,8 +1030,11 @@ func refreshSingleSession(ctx context.Context, config *AWSConfig, sessionName st
 		return
 	}
 
+	// Auto-detect private mode, allow --private as override
+	usePrivate := private || needsPrivateBrowser(config, mockProfile)
+
 	printInfo(fmt.Sprintf("No refresh token available for session %q - initiating device authorization...", sessionName))
-	_, err = loginSSOWithHint(ctx, session.SSOStartURL, session.SSORegion, cachePath, sessionName, session.SSOAccountEmail, private)
+	_, err = loginSSOWithHint(ctx, session.SSOStartURL, session.SSORegion, cachePath, sessionName, session.SSOAccountEmail, usePrivate)
 	if err != nil {
 		printError(fmt.Sprintf("Login failed: %v", err))
 		os.Exit(1)
@@ -1082,9 +1085,20 @@ func refreshSingleProfile(ctx context.Context, config *AWSConfig, profileName st
 		return
 	}
 
+	// Auto-detect private mode, allow --private as override
+	usePrivate := private || needsPrivateBrowser(config, profile)
+
+	// Resolve session name and email for identity hints
+	sessionName := profile.SSOSession
+	emailHint := ""
+	if sessionName != "" {
+		if sess, found := config.Sessions[sessionName]; found {
+			emailHint = sess.SSOAccountEmail
+		}
+	}
+
 	printInfo(fmt.Sprintf("No refresh token available for profile %q - initiating device authorization...", profileName))
-	printInfo("A browser window will open for you to authenticate.")
-	_, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, "", "", private)
+	_, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, sessionName, emailHint, usePrivate)
 	if err != nil {
 		printError(fmt.Sprintf("Login failed: %v", err))
 		os.Exit(1)
@@ -1212,11 +1226,19 @@ func refreshAllSessions(ctx context.Context, config *AWSConfig, force bool, priv
 			if session, found := config.Sessions[s.Name]; found {
 				emailHint = session.SSOAccountEmail
 			}
+
+			// Auto-detect private mode per-session, allow --private as override
+			mockProfile := &AWSProfile{SSOSession: s.Name}
+			usePrivate := private || needsPrivateBrowser(config, mockProfile)
+
 			printInfo(fmt.Sprintf("Opening browser for session %q...", shortName(s.Name)))
 			if emailHint != "" {
 				printInfo(fmt.Sprintf("  Identity: %s", emailHint))
 			}
-			_, err := loginSSOWithHint(ctx, s.StartURL, s.Region, s.TokenPath, s.Name, emailHint, private)
+			if usePrivate {
+				printInfo("  Mode: private/incognito")
+			}
+			_, err := loginSSOWithHint(ctx, s.StartURL, s.Region, s.TokenPath, s.Name, emailHint, usePrivate)
 			if err != nil {
 				printError(fmt.Sprintf("Login failed for %q: %v", shortName(s.Name), err))
 			} else {
