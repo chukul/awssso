@@ -572,11 +572,8 @@ func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileNam
 }
 
 func runConsole(profileName string) {
-	profileName = getProfileName(profileName)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-
-	printHeader(fmt.Sprintf("AWS CONSOLE - PROFILE: %s", profileName))
 
 	config, err := loadAWSConfig()
 	if err != nil {
@@ -584,11 +581,31 @@ func runConsole(profileName string) {
 		os.Exit(1)
 	}
 
-	profile, err := loadProfile(config, profileName)
+	// If no explicit --profile was given (or it resolves to "default" without SSO),
+	// show interactive profile picker grouped by session.
+	if profileName == "" {
+		profileName = getProfileName(profileName)
+	}
+	profile, ok := config.Profiles[profileName]
+	needsPicker := !ok || (profile.SSOAccountID == "" && profileName == "default")
+
+	if needsPicker {
+		profileName = pickProfileForConsole(config)
+		if profileName == "" {
+			return
+		}
+	}
+
+	profile, err = loadProfile(config, profileName)
 	if err != nil {
 		os.Exit(1)
 	}
 
+	if !showProductionWarning(profile) {
+		os.Exit(0)
+	}
+
+	printHeader(fmt.Sprintf("AWS CONSOLE - PROFILE: %s", profileName))
 	fmt.Printf("  %sAccount:%s %s\n", Dim, Reset, profile.SSOAccountID)
 	fmt.Printf("  %sRole:%s    %s\n", Dim, Reset, profile.SSORoleName)
 	fmt.Printf("  %sRegion:%s  %s\n\n", Dim, Reset, profile.Region)
@@ -614,6 +631,160 @@ func runConsole(profileName string) {
 	if err = openAWSConsole(ctx, profile.Region, creds); err != nil {
 		printError(fmt.Sprintf("Failed to open console: %v", err))
 		os.Exit(1)
+	}
+}
+
+// pickProfileForConsole shows a grouped, interactive profile picker for the console command.
+// Returns the selected profile name, or empty string if cancelled.
+func pickProfileForConsole(config *AWSConfig) string {
+	// Only include profiles that have SSO config (can actually open a console)
+	type profileRow struct {
+		name    string
+		id      string
+		role    string
+		region  string
+		env     string
+		session string
+	}
+
+	var allRows []profileRow
+	for name, p := range config.Profiles {
+		if p.SSOAccountID == "" || p.SSORoleName == "" {
+			continue
+		}
+		session := p.SSOSession
+		if session == "" && p.SSOStartURL != "" {
+			session = "(inline)"
+		}
+		allRows = append(allRows, profileRow{
+			name:    name,
+			id:      p.SSOAccountID,
+			role:    p.SSORoleName,
+			region:  p.Region,
+			env:     detectEnvironment(p),
+			session: session,
+		})
+	}
+
+	if len(allRows) == 0 {
+		printWarning("No AWS profiles with SSO configuration found")
+		printInfo("Run 'awssso switch' to create one")
+		return ""
+	}
+
+	// Group by session
+	type sessionGroup struct {
+		session string
+		email   string
+		rows    []profileRow
+	}
+	groupMap := make(map[string]*sessionGroup)
+	groupOrder := []string{}
+
+	for _, r := range allRows {
+		key := r.session
+		if key == "" {
+			key = "(no session)"
+		}
+		if _, exists := groupMap[key]; !exists {
+			email := ""
+			if sess, found := config.Sessions[key]; found {
+				email = sess.SSOAccountEmail
+			}
+			groupMap[key] = &sessionGroup{session: key, email: email}
+			groupOrder = append(groupOrder, key)
+		}
+		groupMap[key].rows = append(groupMap[key].rows, r)
+	}
+
+	// Sort groups
+	slices.SortFunc(groupOrder, func(a, b string) int {
+		aSpecial := strings.HasPrefix(a, "(")
+		bSpecial := strings.HasPrefix(b, "(")
+		if aSpecial != bSpecial {
+			if aSpecial {
+				return 1
+			}
+			return -1
+		}
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	})
+
+	// Sort profiles within each group by environment priority
+	envPriority := map[string]int{"production": 0, "staging": 1, "oat": 2, "development": 3, "unknown": 4}
+	for _, g := range groupMap {
+		slices.SortFunc(g.rows, func(a, b profileRow) int {
+			pa, pb := envPriority[a.env], envPriority[b.env]
+			if pa != pb {
+				return pa - pb
+			}
+			if a.name < b.name {
+				return -1
+			}
+			if a.name > b.name {
+				return 1
+			}
+			return 0
+		})
+	}
+
+	// Display picker
+	printHeader("OPEN AWS CONSOLE — SELECT PROFILE")
+	globalIdx := 0
+	flatRows := []profileRow{}
+
+	for _, key := range groupOrder {
+		g := groupMap[key]
+
+		sessionLabel := g.session
+		if g.email != "" {
+			sessionLabel = fmt.Sprintf("%s %s(%s)%s", g.session, Magenta, g.email, Reset)
+		}
+		fmt.Printf("\n  %s┌─ Session: %s%s%s\n", Dim, Reset+Bold, sessionLabel, Reset)
+
+		for _, r := range g.rows {
+			globalIdx++
+			flatRows = append(flatRows, r)
+
+			envSymbol := ""
+			if r.env != "unknown" {
+				envSymbol = getEnvironmentSymbol(r.env) + " "
+			}
+
+			fmt.Printf("  %s│%s   %s[%d]%s %s%-28s%s %s%s / %s  (%s)%s\n",
+				Dim, Reset,
+				Cyan, globalIdx, Reset,
+				envSymbol,
+				Bold+r.name+Reset, "",
+				Dim, r.id, r.role, r.region, Reset)
+		}
+		fmt.Printf("  %s└─%s\n", Dim, Reset)
+	}
+
+	fmt.Println()
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		printPrompt(fmt.Sprintf("Select profile %s(1-%d)%s or %sq%s to quit: ", Dim, len(flatRows), Reset, Bold, Reset))
+		if !scanner.Scan() {
+			return ""
+		}
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" || text == "q" || text == "quit" || text == "exit" {
+			printInfo("Canceled")
+			return ""
+		}
+		val, err := strconv.Atoi(text)
+		if err == nil && val >= 1 && val <= len(flatRows) {
+			return flatRows[val-1].name
+		}
+		printError(fmt.Sprintf("Invalid input %q. Enter a number between 1 and %d", text, len(flatRows)))
 	}
 }
 
