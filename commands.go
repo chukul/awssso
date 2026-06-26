@@ -1310,6 +1310,7 @@ func runProfiles() {
 	}
 
 	printHeader(fmt.Sprintf("AWS PROFILES (%d)", len(config.Profiles)))
+	fmt.Printf("  %sSelect a profile to activate. Expired sessions will auto-login.%s\n", Dim, Reset)
 
 	type profileRow struct {
 		name      string
@@ -1559,6 +1560,44 @@ func runProfiles() {
 
 	if !showProductionWarning(profile) {
 		return
+	}
+
+	// If the session is expired, auto-login before activating
+	selectedRow := flatRows[val-1]
+	if selectedRow.status == "Expired" || selectedRow.status == "Not Logged In" {
+		printWarning("Session expired — initiating login...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		sessionName := profile.SSOSession
+		emailHint := ""
+		if sessionName != "" {
+			if sess, found := config.Sessions[sessionName]; found {
+				emailHint = sess.SSOAccountEmail
+			}
+		}
+
+		startURL := resolveStartURL(profile, config)
+		ssoRegion := resolveSSORegion(profile, config, nil)
+		cachePath, pathErr := getSSOTokenPath(profile, config)
+		if pathErr != nil {
+			printError(fmt.Sprintf("Failed to resolve token path: %v", pathErr))
+			return
+		}
+
+		usePrivate := needsPrivateBrowser(config, profile)
+		if usePrivate {
+			printInfo(fmt.Sprintf("Multi-identity detected — opening private browser for: %s", emailHint))
+		}
+
+		_, loginErr := loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, sessionName, emailHint, usePrivate)
+		if loginErr != nil {
+			printError(fmt.Sprintf("Login failed: %v", loginErr))
+			return
+		}
+		printSuccess("Logged in successfully!")
+		fmt.Println()
 	}
 
 	// Set AWS_PROFILE for the current process (useful if invoked from scripts)
