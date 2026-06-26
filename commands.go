@@ -969,13 +969,16 @@ func runProfiles() {
 		env       string
 		status    string
 		remaining string
+		session   string
 	}
-	rows := []profileRow{}
 
+	// Build profile rows with status
+	allRows := []profileRow{}
 	for name, p := range config.Profiles {
 		env := detectEnvironment(p)
 		status := "No SSO"
 		remaining := ""
+		session := p.SSOSession
 
 		if p.SSOSession != "" || p.SSOStartURL != "" {
 			mockProfile := &AWSProfile{}
@@ -983,6 +986,7 @@ func runProfiles() {
 				mockProfile.SSOSession = p.SSOSession
 			} else {
 				mockProfile.SSOStartURL = p.SSOStartURL
+				session = "(inline)"
 			}
 			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
 				if token, err := readSSOToken(tokenPath); err == nil {
@@ -1003,7 +1007,7 @@ func runProfiles() {
 			}
 		}
 
-		rows = append(rows, profileRow{
+		allRows = append(allRows, profileRow{
 			name:      name,
 			id:        p.SSOAccountID,
 			role:      p.SSORoleName,
@@ -1011,49 +1015,162 @@ func runProfiles() {
 			env:       env,
 			status:    status,
 			remaining: remaining,
+			session:   session,
 		})
 	}
 
-	// Mark currently active profile
-	currentProfile := os.Getenv("AWS_PROFILE")
+	// Group profiles by session
+	type sessionGroup struct {
+		session string
+		email   string
+		rows    []profileRow
+		status  string
+	}
+	groupMap := make(map[string]*sessionGroup)
+	groupOrder := []string{}
 
-	for i, r := range rows {
-		statusColor := Red
-		switch r.status {
+	for _, r := range allRows {
+		key := r.session
+		if key == "" {
+			key = "(no session)"
+		}
+		if _, exists := groupMap[key]; !exists {
+			email := ""
+			if sess, found := config.Sessions[key]; found {
+				email = sess.SSOAccountEmail
+			}
+			groupMap[key] = &sessionGroup{session: key, email: email}
+			groupOrder = append(groupOrder, key)
+		}
+		groupMap[key].rows = append(groupMap[key].rows, r)
+	}
+
+	// Sort groups: named sessions first (alphabetical), then "(inline)", then "(no session)"
+	slices.SortFunc(groupOrder, func(a, b string) int {
+		aSpecial := strings.HasPrefix(a, "(")
+		bSpecial := strings.HasPrefix(b, "(")
+		if aSpecial != bSpecial {
+			if aSpecial {
+				return 1
+			}
+			return -1
+		}
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	})
+
+	// Sort profiles within each group by environment priority (prod first, then staging, dev, unknown)
+	envPriority := map[string]int{"production": 0, "staging": 1, "oat": 2, "development": 3, "unknown": 4}
+	for _, g := range groupMap {
+		slices.SortFunc(g.rows, func(a, b profileRow) int {
+			pa, pb := envPriority[a.env], envPriority[b.env]
+			if pa != pb {
+				return pa - pb
+			}
+			if a.name < b.name {
+				return -1
+			}
+			if a.name > b.name {
+				return 1
+			}
+			return 0
+		})
+	}
+
+	// Determine session-level status (best status among its profiles)
+	for _, key := range groupOrder {
+		g := groupMap[key]
+		best := "No SSO"
+		for _, r := range g.rows {
+			if r.status == "Active" {
+				best = "Active"
+				break
+			} else if r.status == "Expired" && best != "Active" {
+				best = "Expired"
+			} else if r.status == "Not Logged In" && best == "No SSO" {
+				best = "Not Logged In"
+			}
+		}
+		g.status = best
+	}
+
+	// Display
+	currentProfile := os.Getenv("AWS_PROFILE")
+	globalIdx := 0
+
+	for _, key := range groupOrder {
+		g := groupMap[key]
+
+		// Session header
+		sessionStatusColor := Dim
+		switch g.status {
 		case "Active":
-			statusColor = Green
+			sessionStatusColor = Green
 		case "Expired":
-			statusColor = Yellow
+			sessionStatusColor = Yellow
 		case "Not Logged In":
-			statusColor = Red
-		default:
-			statusColor = Dim
+			sessionStatusColor = Red
 		}
-		remainingStr := ""
-		if r.remaining != "" {
-			remainingStr = fmt.Sprintf(" %s(%s)%s", Dim, r.remaining, Reset)
+
+		sessionLabel := g.session
+		if g.email != "" {
+			sessionLabel = fmt.Sprintf("%s %s(%s)%s", g.session, Magenta, g.email, Reset)
 		}
-		activeMarker := "  "
-		if r.name == currentProfile {
-			activeMarker = fmt.Sprintf("%s▶%s ", Green, Reset)
+		fmt.Printf("\n  %s┌─ Session: %s%s  [%s%s%s]%s\n",
+			Dim, Reset+Bold, sessionLabel, sessionStatusColor, g.status, Reset, Reset)
+
+		// Profiles in this group
+		for _, r := range g.rows {
+			globalIdx++
+			statusColor := Dim
+			switch r.status {
+			case "Active":
+				statusColor = Green
+			case "Expired":
+				statusColor = Yellow
+			case "Not Logged In":
+				statusColor = Red
+			}
+
+			activeMarker := "  "
+			if r.name == currentProfile {
+				activeMarker = fmt.Sprintf("%s▶%s ", Green, Reset)
+			}
+
+			envSymbol := ""
+			if r.env != "unknown" {
+				envSymbol = getEnvironmentSymbol(r.env) + " "
+			}
+
+			remainingStr := ""
+			if r.remaining != "" {
+				remainingStr = fmt.Sprintf(" %s%s%s", Dim, r.remaining, Reset)
+			}
+
+			fmt.Printf("  %s│%s %s%s[%d]%s %s%-28s%s %s[%s%s%s]%s%s\n",
+				Dim, Reset,
+				activeMarker,
+				Cyan, globalIdx, Reset,
+				envSymbol,
+				Bold+r.name+Reset, "",
+				Dim, statusColor, r.status, Reset,
+				Dim,
+				remainingStr)
+
+			if r.id != "" {
+				fmt.Printf("  %s│%s       %s%s%s / %s%s  %s(%s)%s\n",
+					Dim, Reset,
+					Dim, r.id, Reset,
+					r.role, Reset,
+					Dim, r.region, Reset)
+			}
 		}
-		fmt.Printf("%s%s[%d]%s %-30s%s[%s%s%s]%s\n",
-			activeMarker,
-			Cyan, i+1, Reset,
-			Bold+r.name+Reset,
-			Dim, statusColor, r.status, Reset,
-			remainingStr)
-		if r.id != "" || r.role != "" {
-			fmt.Printf("       %sAccount:%s %s  %sRole:%s %s  %sRegion:%s %s\n",
-				Dim, Reset, r.id,
-				Dim, Reset, r.role,
-				Dim, Reset, r.region)
-		}
-		if r.env != "unknown" {
-			envColor := getEnvironmentColor(r.env)
-			envSymbol := getEnvironmentSymbol(r.env)
-			fmt.Printf("       %s %s%s%s\n", envSymbol, envColor, strings.ToUpper(r.env), Reset)
-		}
+		fmt.Printf("  %s└─%s\n", Dim, Reset)
 	}
 
 	fmt.Println()
@@ -1065,8 +1182,14 @@ func runProfiles() {
 	}
 	fmt.Println()
 
+	// Flatten rows in display order for selection
+	flatRows := []profileRow{}
+	for _, key := range groupOrder {
+		flatRows = append(flatRows, groupMap[key].rows...)
+	}
+
 	scanner := bufio.NewScanner(os.Stdin)
-	printPrompt(fmt.Sprintf("Select profile to activate %s(1-%d)%s, or press Enter to skip: ", Dim, len(rows), Reset))
+	printPrompt(fmt.Sprintf("Select profile to activate %s(1-%d)%s, or press Enter to skip: ", Dim, len(flatRows), Reset))
 	if !scanner.Scan() {
 		return
 	}
@@ -1076,12 +1199,12 @@ func runProfiles() {
 	}
 
 	val, err := strconv.Atoi(text)
-	if err != nil || val < 1 || val > len(rows) {
-		printError(fmt.Sprintf("Invalid input %q. Enter a number between 1 and %d", text, len(rows)))
+	if err != nil || val < 1 || val > len(flatRows) {
+		printError(fmt.Sprintf("Invalid input %q. Enter a number between 1 and %d", text, len(flatRows)))
 		return
 	}
 
-	selectedName := rows[val-1].name
+	selectedName := flatRows[val-1].name
 	profile := config.Profiles[selectedName]
 
 	if !showProductionWarning(profile) {
