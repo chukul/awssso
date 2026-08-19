@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -487,7 +488,11 @@ func runSwitch(profileName string, sessionName string, private bool) {
 	printSuccess(fmt.Sprintf("Profile %q saved to ~/.aws/config!", customProfileName))
 	printHeader("NEXT STEPS")
 	fmt.Printf("  %s1.%s Set the profile as active:\n", Cyan, Reset)
-	fmt.Printf("     %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, customProfileName, Reset)
+	if runtime.GOOS == "windows" {
+		fmt.Printf("     %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, customProfileName, Reset)
+	} else {
+		fmt.Printf("     %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, customProfileName, Reset)
+	}
 	fmt.Printf("  %s2.%s Use AWS CLI or other tools:\n", Cyan, Reset)
 	fmt.Printf("     %saws s3 ls%s\n\n", Dim, Reset)
 	fmt.Printf("  %s3.%s Open AWS Console:\n", Cyan, Reset)
@@ -967,7 +972,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 	}
 }
 
-func runRefresh(profileName string, sessionName string, force bool, private bool) {
+func runRefresh(profileName string, sessionName string, extraSessions []string, force bool, private bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -977,12 +982,219 @@ func runRefresh(profileName string, sessionName string, force bool, private bool
 		os.Exit(1)
 	}
 
-	if sessionName != "" {
+	switch {
+	case len(extraSessions) > 0:
+		// Positional args: awssso refresh session-a session-b session-c
+		refreshMultipleSessions(ctx, config, extraSessions, force, private)
+	case sessionName != "":
 		refreshSingleSession(ctx, config, sessionName, force, private)
-	} else if profileName != "" {
+	case profileName != "":
 		refreshSingleProfile(ctx, config, profileName, force, private)
-	} else {
-		refreshAllSessions(ctx, config, force, private)
+	default:
+		// No args: show interactive picker
+		runRefreshPicker(ctx, config, force, private)
+	}
+}
+
+// runRefreshPicker shows a numbered list of sessions and lets the user select
+// multiple by number (e.g. "1 2 3", "1,3", "1-3", or "all").
+func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, private bool) {
+	if len(config.Sessions) == 0 {
+		printWarning("No SSO sessions found in ~/.aws/config")
+		printInfo("Run 'awssso switch' or 'awssso login' to create one")
+		return
+	}
+
+	type row struct {
+		name      string
+		startURL  string
+		region    string
+		status    string
+		remaining string
+	}
+
+	var rows []row
+	for name, sess := range config.Sessions {
+		status := "Not Logged In"
+		remaining := ""
+		mockProfile := &AWSProfile{SSOSession: name}
+		if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
+			if token, err := readSSOToken(tokenPath); err == nil {
+				if token.IsExpired() {
+					status = "Expired"
+					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
+						remaining = fmt.Sprintf("expired %s ago", formatDuration(time.Since(parsed)))
+					}
+				} else {
+					status = "Active"
+					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
+						remaining = fmt.Sprintf("%s remaining", formatDuration(time.Until(parsed)))
+					}
+				}
+			}
+		}
+		rows = append(rows, row{
+			name:     name,
+			startURL: sess.SSOStartURL,
+			region:   sess.SSORegion,
+			status:   status,
+			remaining: remaining,
+		})
+	}
+
+	// Sort: expired first, then by name
+	slices.SortFunc(rows, func(a, b row) int {
+		if a.status == "Expired" && b.status != "Expired" {
+			return -1
+		}
+		if a.status != "Expired" && b.status == "Expired" {
+			return 1
+		}
+		if a.name < b.name {
+			return -1
+		}
+		return 1
+	})
+
+	printHeader(fmt.Sprintf("SELECT SESSIONS TO REFRESH (%d)", len(rows)))
+	fmt.Printf("  %sSupports: single (1), multiple (1 2 3 or 1,2,3), ranges (1-3), or all%s\n\n", Dim, Reset)
+
+	for i, r := range rows {
+		statusColor := Green
+		switch r.status {
+		case "Expired":
+			statusColor = Yellow
+		case "Not Logged In":
+			statusColor = Red
+		}
+		remainingStr := ""
+		if r.remaining != "" {
+			remainingStr = fmt.Sprintf("  %s%s%s", Dim, r.remaining, Reset)
+		}
+		fmt.Printf("  %s[%d]%s %-30s %s%s%s%s\n",
+			Cyan, i+1, Reset,
+			Bold+r.name+Reset,
+			statusColor, r.status, Reset,
+			remainingStr)
+	}
+	fmt.Println()
+
+	scanner := bufio.NewScanner(os.Stdin)
+	var selected []string
+
+	for {
+		printPrompt(fmt.Sprintf("Select sessions %s(1-%d, 1 2 3, 1-3, or all)%s: ", Dim, len(rows), Reset))
+		if !scanner.Scan() {
+			return
+		}
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" || text == "q" || text == "quit" {
+			printInfo("Canceled")
+			return
+		}
+		if text == "all" {
+			for _, r := range rows {
+				selected = append(selected, r.name)
+			}
+			break
+		}
+		indices := parseSelection(text, len(rows))
+		if len(indices) == 0 {
+			printError("Invalid input. Use numbers like 1 2 3, 1,3, or 1-3")
+			continue
+		}
+		for _, idx := range indices {
+			selected = append(selected, rows[idx].name)
+		}
+		break
+	}
+
+	fmt.Println()
+	refreshMultipleSessions(ctx, config, selected, force, private)
+}
+
+// refreshMultipleSessions refreshes a list of sessions by name, running them in parallel.
+func refreshMultipleSessions(ctx context.Context, config *AWSConfig, sessionNames []string, force bool, private bool) {
+	// Validate all names first
+	var valid []string
+	for _, name := range sessionNames {
+		if _, found := config.Sessions[name]; !found {
+			printError(fmt.Sprintf("Session %q not found in ~/.aws/config", name))
+			suggestions := []string{}
+			for k := range config.Sessions {
+				suggestions = append(suggestions, k)
+			}
+			if len(suggestions) > 0 {
+				printInfo(fmt.Sprintf("Available sessions: %s", strings.Join(suggestions, ", ")))
+			}
+			continue
+		}
+		valid = append(valid, name)
+	}
+
+	if len(valid) == 0 {
+		os.Exit(1)
+	}
+
+	printHeader(fmt.Sprintf("REFRESHING %d SESSION(S)", len(valid)))
+
+	var wg sync.WaitGroup
+	results := make(chan string, len(valid))
+
+	for _, name := range valid {
+		wg.Add(1)
+		go func(sessionName string) {
+			defer wg.Done()
+			session := config.Sessions[sessionName]
+			mockProfile := &AWSProfile{SSOSession: sessionName}
+			cachePath, err := getSSOTokenPath(mockProfile, config)
+			if err != nil {
+				results <- fmt.Sprintf("✘ %-28s  failed to resolve token path: %v", sessionName, err)
+				return
+			}
+
+			token, err := readSSOToken(cachePath)
+			if err != nil {
+				results <- fmt.Sprintf("✘ %-28s  no cached token — run: awssso login --session %s", sessionName, sessionName)
+				return
+			}
+
+			if !token.IsExpired() && !force {
+				exp, _ := time.Parse(time.RFC3339, token.ExpiresAt)
+				results <- fmt.Sprintf("✔ %-28s  already valid (%s remaining)", sessionName, formatDuration(time.Until(exp)))
+				return
+			}
+
+			if token.RefreshToken != "" {
+				_, err = refreshToken(ctx, session.SSORegion, cachePath, token)
+				if err != nil {
+					results <- fmt.Sprintf("✘ %-28s  refresh failed: %v", sessionName, err)
+				} else {
+					results <- fmt.Sprintf("✔ %-28s  refreshed via OIDC", sessionName)
+				}
+				return
+			}
+
+			// Need browser login
+			usePrivate := private || needsPrivateBrowser(config, mockProfile)
+			_, err = loginSSOWithHint(ctx, session.SSOStartURL, session.SSORegion, cachePath, sessionName, session.SSOAccountEmail, usePrivate)
+			if err != nil {
+				results <- fmt.Sprintf("✘ %-28s  login failed: %v", sessionName, err)
+			} else {
+				results <- fmt.Sprintf("✔ %-28s  refreshed via login", sessionName)
+			}
+		}(name)
+	}
+
+	wg.Wait()
+	close(results)
+
+	for r := range results {
+		if strings.HasPrefix(r, "✔") {
+			fmt.Printf("  %s%s%s\n", Green, r, Reset)
+		} else {
+			fmt.Printf("  %s%s%s\n", Red, r, Reset)
+		}
 	}
 }
 
@@ -1311,10 +1523,15 @@ func runWhoami(profileName string) {
 
 	fmt.Println()
 	printHeader("USAGE")
-	fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
-	fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
-	fmt.Printf("\n  %sBash/Zsh:%s\n", Bold, Reset)
-	fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+	if runtime.GOOS == "windows" {
+		fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
+		fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+		fmt.Printf("\n  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+	} else {
+		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+	}
 	fmt.Println()
 }
 
@@ -1634,31 +1851,41 @@ func setProfileScript(profileName string) {
 	printSuccess(fmt.Sprintf("Selected profile: %s%s%s", Bold, profileName, Reset))
 	fmt.Println()
 
-	// Write a .cmd helper for quick activation
 	home, err := homeDir()
-	if err == nil {
-		cmdPath := filepath.Join(home, ".aws", "activate.cmd")
-		cmdContent := fmt.Sprintf("@echo off\nset AWS_PROFILE=%s\necho AWS_PROFILE set to %s\n", profileName, profileName)
-		if err := os.WriteFile(cmdPath, []byte(cmdContent), 0644); err == nil {
-			printInfo(fmt.Sprintf("Activation script written to: %s", cmdPath))
-		}
-
-		ps1Path := filepath.Join(home, ".aws", "activate.ps1")
-		ps1Content := fmt.Sprintf("$env:AWS_PROFILE=\"%s\"\nWrite-Host \"AWS_PROFILE set to %s\" -ForegroundColor Green\n", profileName, profileName)
-		if err := os.WriteFile(ps1Path, []byte(ps1Content), 0644); err == nil {
-			// silently written
-		}
-	}
-
 	printHeader("ACTIVATE PROFILE")
-	fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
-	fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
-	fmt.Printf("    %s# or run: . ~/.aws/activate.ps1%s\n\n", Dim, Reset)
-	fmt.Printf("  %sCmd:%s\n", Bold, Reset)
-	fmt.Printf("    %sset AWS_PROFILE=%s%s\n", Dim, profileName, Reset)
-	fmt.Printf("    %s# or run: %%USERPROFILE%%\\.aws\\activate.cmd%s\n\n", Dim, Reset)
-	fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
-	fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, profileName, Reset)
+
+	if runtime.GOOS == "windows" {
+		if err == nil {
+			cmdPath := filepath.Join(home, ".aws", "activate.cmd")
+			cmdContent := fmt.Sprintf("@echo off\nset AWS_PROFILE=%s\necho AWS_PROFILE set to %s\n", profileName, profileName)
+			if writeErr := os.WriteFile(cmdPath, []byte(cmdContent), 0644); writeErr == nil {
+				printInfo(fmt.Sprintf("Activation script written to: %s", cmdPath))
+			}
+
+			ps1Path := filepath.Join(home, ".aws", "activate.ps1")
+			ps1Content := fmt.Sprintf("$env:AWS_PROFILE=\"%s\"\nWrite-Host \"AWS_PROFILE set to %s\" -ForegroundColor Green\n", profileName, profileName)
+			_ = os.WriteFile(ps1Path, []byte(ps1Content), 0644)
+		}
+		fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
+		fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+		fmt.Printf("    %s# or run: . ~/.aws/activate.ps1%s\n\n", Dim, Reset)
+		fmt.Printf("  %sCmd:%s\n", Bold, Reset)
+		fmt.Printf("    %sset AWS_PROFILE=%s%s\n", Dim, profileName, Reset)
+		fmt.Printf("    %s# or run: %%USERPROFILE%%\\.aws\\activate.cmd%s\n\n", Dim, Reset)
+		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, profileName, Reset)
+	} else {
+		if err == nil {
+			shPath := filepath.Join(home, ".aws", "activate.sh")
+			shContent := fmt.Sprintf("export AWS_PROFILE=\"%s\"\necho \"AWS_PROFILE set to %s\"\n", profileName, profileName)
+			if writeErr := os.WriteFile(shPath, []byte(shContent), 0644); writeErr == nil {
+				printInfo(fmt.Sprintf("Activation script written to: %s", shPath))
+			}
+		}
+		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
+		fmt.Printf("    %s# or run: source ~/.aws/activate.sh%s\n\n", Dim, Reset)
+	}
 }
 
 func runQuick() {
@@ -1738,10 +1965,15 @@ func runQuick() {
 	fmt.Println()
 	printSuccess(fmt.Sprintf("Selected profile: %s", selectedProfile.Name))
 	printHeader("SET PROFILE")
-	fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
-	fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
-	fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
-	fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
+	if runtime.GOOS == "windows" {
+		fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
+		fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
+		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
+	} else {
+		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
+		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
+	}
 
 	printInfo("Or run commands directly:")
 	fmt.Printf("  %sawssso console --profile %s%s\n", Dim, selectedProfile.Name, Reset)
@@ -2055,9 +2287,12 @@ func runDelete(profileNames []string) {
 	}
 }
 
-// parseSelection parses a selection string like "1,3,5" or "1-3" or "1-3,5" into zero-based indices.
+// parseSelection parses a selection string into zero-based indices.
+// Accepts: "1,3,5"  "1-3"  "1-3,5"  "1 2 3"  "1 2,4 6-8"
 func parseSelection(input string, maxItems int) []int {
 	seen := map[int]bool{}
+	// Normalise spaces to commas so "1 2 3" and "1,2,3" are equivalent
+	input = strings.NewReplacer(" ", ",").Replace(input)
 	parts := strings.Split(input, ",")
 
 	for _, part := range parts {

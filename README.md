@@ -2,6 +2,8 @@
 
 A fast, single-binary CLI tool for AWS SSO authentication and credential management. Built for cloud engineers who manage multiple AWS accounts and identities via SSO.
 
+---
+
 ## Features
 
 - **Multi-identity SSO** — multiple sessions sharing one start URL, each with a different email identity
@@ -12,47 +14,42 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **Credential export** — output credentials for Terraform, Docker, JSON, YAML, or shell env vars
 - **Smart token refresh** — OIDC `refresh_token` when available, device auth fallback otherwise
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
-- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging, 🟢 dev) with production safety prompts
+- **Tab completion** — shell completion for commands, flags, and profile/session names (zsh, bash, fish, PowerShell)
+- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev) with production safety prompts
 - **Profile suggestions** — typo-tolerant profile name matching via Levenshtein distance
-- **Cross-platform** — Windows, macOS, and Linux via build tags
+
+---
 
 ## Installation
 
-```bash
-# Clone and build
-git clone https://github.com/chukul/awssso.git
-cd awssso
-go build -o awssso.exe   # Windows
-go build -o awssso       # macOS/Linux
-```
-
-Place the binary anywhere in your `PATH`.
-
 ### Requirements
 
-- Go 1.21+ (uses built-in `min()` and `slices` package)
+- Go 1.21+
 - AWS SSO configured in `~/.aws/config`
 
-## Quick Start
+### macOS / Linux
 
-```powershell
-# 1. Login to your SSO profile
-awssso login --profile my-profile
-
-# 2. Check your identity
-awssso whoami
-
-# 3. Switch to a different account/role
-awssso switch
-
-# 4. Export credentials for Terraform
-awssso export --profile prod --format terraform
-
-# 5. Open AWS Console directly
-awssso console --profile my-profile
+```bash
+git clone https://github.com/chukul/awssso.git
+cd awssso
+go build -o awssso .
+sudo mv awssso /usr/local/bin/
 ```
 
+### Windows
+
+```powershell
+git clone https://github.com/chukul/awssso.git
+cd awssso
+go build -o awssso.exe .
+# Move awssso.exe to a directory listed in your $env:PATH
+```
+
+---
+
 ## Commands
+
+These commands work on all platforms. Examples below show the platform-appropriate shell syntax.
 
 | Command | Description |
 |---------|-------------|
@@ -61,15 +58,19 @@ awssso console --profile my-profile
 | `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
 | `console` | Open AWS Management Console in browser, pre-authenticated |
 | `whoami` | Display current profile, account, role, and SSO token status |
-| `profiles` | List all profiles and set one as active (`AWS_PROFILE`) |
+| `profiles` | List all profiles and set one as active |
 | `delete` | Delete one or more profiles (interactive or by name) |
 | `sessions` | List all SSO sessions with identity info and token status |
-| `refresh` | Refresh expired SSO tokens (all, by profile, or by session) |
+| `refresh` | Refresh sessions — interactive picker, by name, or multiple at once |
 | `quick` | Quick switch between recently used profiles |
 | `export` | Export credentials in multiple formats |
 | `dashboard` | Interactive TUI session management dashboard |
+| `shell` | Start an interactive session (also the default when no command is given) |
+| `completion` | Generate shell tab-completion script |
+| `daemon` | Run auto-refresh loop in the foreground |
+| `service` | Install/uninstall auto-refresh as a background system service |
 
-## Options
+### Options
 
 | Flag | Applies To | Description |
 |------|-----------|-------------|
@@ -78,10 +79,61 @@ awssso console --profile my-profile
 | `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
 | `--format <fmt>` | `export` | Output format: `env`, `terraform`, `docker`, `json`, `yaml`, `credential_process` |
 | `--force` | `refresh` | Refresh even valid tokens (proactive refresh) |
+| `--interval <min>` | `daemon`, `service` | Auto-refresh interval in minutes (default: `60`) |
+
+---
+
+## Quick Start
+
+### macOS / Linux
+
+```bash
+# 1. Login to your SSO profile
+awssso login --profile my-profile
+
+# 2. Check your identity
+awssso whoami
+
+# 3. Activate the profile in your shell
+export AWS_PROFILE="my-profile"
+
+# 4. Switch to a different account/role
+awssso switch
+
+# 5. Export credentials for Terraform
+awssso export --profile prod --format terraform
+
+# 6. Open AWS Console
+awssso console --profile my-profile
+```
+
+### Windows (PowerShell)
+
+```powershell
+# 1. Login to your SSO profile
+awssso login --profile my-profile
+
+# 2. Check your identity
+awssso whoami
+
+# 3. Activate the profile in your shell
+$env:AWS_PROFILE = "my-profile"
+
+# 4. Switch to a different account/role
+awssso switch
+
+# 5. Export credentials for Terraform
+awssso export --profile prod --format terraform
+
+# 6. Open AWS Console
+awssso console --profile my-profile
+```
+
+---
 
 ## Configuration
 
-Profiles must have SSO configuration in `~/.aws/config` using one of these patterns:
+Profiles must be configured in `~/.aws/config`. Two formats are supported:
 
 ### Using `sso_session` (recommended)
 
@@ -108,20 +160,182 @@ sso_role_name = AdministratorAccess
 region = eu-west-1
 ```
 
-When creating new profiles via `switch` or `login`, the tool automatically converts inline SSO to `sso-session` format.
+When creating profiles via `switch` or `login`, inline SSO is automatically converted to `sso-session` format.
 
 ### Using as `credential_process`
 
+**macOS / Linux** — add to `~/.aws/config`:
+```ini
+[profile my-profile]
+credential_process = "/usr/local/bin/awssso" credential --profile "my-profile"
+```
+
+**Windows** — add to `~/.aws/config`:
 ```ini
 [profile my-profile]
 credential_process = "C:\path\to\awssso.exe" credential --profile "my-profile"
 ```
 
-The `credential` command outputs JSON compatible with the AWS SDK credential process protocol. Tokens are auto-refreshed transparently.
+Tokens are auto-refreshed transparently. No manual login needed after initial setup.
+
+---
+
+## Activating a Profile
+
+After `awssso profiles` or `awssso switch`, activate the selected profile in your shell:
+
+### macOS / Linux
+
+```bash
+# One-time in current session
+export AWS_PROFILE="my-profile"
+
+# Or source the generated helper script
+source ~/.aws/activate.sh
+```
+
+### Windows — PowerShell
+
+```powershell
+# One-time in current session
+$env:AWS_PROFILE = "my-profile"
+
+# Or dot-source the generated helper script
+. $HOME\.aws\activate.ps1
+```
+
+### Windows — Command Prompt
+
+```cmd
+set AWS_PROFILE=my-profile
+
+rem Or run the generated helper script
+%USERPROFILE%\.aws\activate.cmd
+```
+
+> **Note:** Setting `AWS_PROFILE` this way only affects the current terminal session. To persist it, add the export to `~/.zshrc` or `~/.bashrc` on macOS/Linux, or set it in System Properties → Environment Variables on Windows.
+
+---
+
+## Tab Completion
+
+### macOS / Linux
+
+**Zsh** (default shell on macOS):
+
+```bash
+# Auto-install (detects your shell automatically)
+awssso completion --install
+
+# Or install manually
+mkdir -p ~/.zsh/completions
+awssso completion --shell zsh > ~/.zsh/completions/_awssso
+
+# Add to ~/.zshrc if not already present
+echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+echo 'autoload -Uz compinit && compinit' >> ~/.zshrc
+
+# Reload
+exec zsh
+```
+
+**Bash**:
+
+```bash
+# Auto-install
+awssso completion --install
+
+# Or install manually
+mkdir -p ~/.local/share/bash-completion/completions
+awssso completion --shell bash > ~/.local/share/bash-completion/completions/awssso
+```
+
+**Fish**:
+
+```bash
+# Auto-install (no restart needed — fish loads completions automatically)
+awssso completion --install
+
+# Or install manually
+mkdir -p ~/.config/fish/completions
+awssso completion --shell fish > ~/.config/fish/completions/awssso.fish
+```
+
+### Windows (PowerShell)
+
+```powershell
+# Auto-install (detects PowerShell automatically)
+awssso completion --install
+
+# Or install manually
+awssso completion --shell powershell > "$HOME\.aws\awssso_completion.ps1"
+# Then add this line to your $PROFILE:
+. "$HOME\.aws\awssso_completion.ps1"
+```
+
+**Git Bash on Windows** — use the bash script instead:
+```bash
+awssso completion --shell bash --install
+```
+
+### What completes
+
+| Typed | Completes |
+|-------|-----------|
+| `awssso <TAB>` | All subcommands with descriptions |
+| `awssso login --<TAB>` | `--profile`, `--session`, `--private` |
+| `awssso login --profile <TAB>` | Profile names from `~/.aws/config` |
+| `awssso login --session <TAB>` | Session names from `~/.aws/config` |
+| `awssso export --format <TAB>` | `env`, `terraform`, `docker`, `json`, `yaml`, `credential_process` |
+| `awssso refresh --<TAB>` | `--profile`, `--session`, `--private`, `--force` |
+
+---
+
+## Credential Export
+
+### macOS / Linux
+
+```bash
+# Shell environment variables (Bash/Zsh)
+awssso export --profile my-profile --format env
+
+# Terraform variables
+awssso export --profile my-profile --format terraform
+
+# Docker env file
+awssso export --profile my-profile --format docker
+
+# Raw JSON
+awssso export --profile my-profile --format json
+
+# YAML
+awssso export --profile my-profile --format yaml
+
+# credential_process config line
+awssso export --profile my-profile --format credential_process
+```
+
+### Windows (PowerShell)
+
+```powershell
+# Shell environment variables — outputs $env: syntax automatically on Windows
+awssso export --profile my-profile --format env
+
+# Terraform variables
+awssso export --profile my-profile --format terraform
+
+# Docker env file — uses backtick ` line continuation on Windows
+awssso export --profile my-profile --format docker
+
+# Raw JSON
+awssso export --profile my-profile --format json
+```
+
+---
 
 ## Multi-Identity / Multi-Session Support
 
-For teams where multiple people (or the same person with multiple roles) share one SSO start URL but need to authenticate as different identities:
+For teams where multiple identities share one SSO start URL.
 
 ### Configuration
 
@@ -149,77 +363,223 @@ sso_role_name = AdminAccess
 region = us-east-1
 ```
 
-### How It Works
+### macOS / Linux
 
-1. Each `[sso-session]` gets its own token cache (SHA1 hash of session **name**, not URL)
-2. The `sso_account_email` field tells the CLI which identity belongs to which session
-3. During login, the CLI displays which email you should authenticate as
-4. You can be logged into multiple sessions simultaneously
-
-### Usage
-
-```powershell
-# Login to a specific session in private browser (recommended)
+```bash
+# Login to each identity in a private window
 awssso login --session team-alpha --private
-
-# Login to another identity
 awssso login --session team-beta --private
 
-# Switch accounts using a specific identity
-awssso switch --session team-alpha --private
-
-# List all sessions with identity and status info
+# List sessions and their token status
 awssso sessions
 
-# Refresh a specific session
-awssso refresh --session team-beta --private --force
+# Refresh — interactive picker (type numbers to choose)
+awssso refresh
+
+# Refresh specific sessions by name
+awssso refresh team-alpha team-beta
+
+# Refresh a single session
+awssso refresh --session team-beta --force --private
 ```
+
+### Windows (PowerShell)
+
+```powershell
+# Login to each identity in an InPrivate window
+awssso login --session team-alpha --private
+awssso login --session team-beta --private
+
+# List sessions and their token status
+awssso sessions
+
+# Refresh — interactive picker
+awssso refresh
+
+# Refresh specific sessions by name
+awssso refresh team-alpha team-beta
+
+# Refresh a single session
+awssso refresh --session team-beta --force --private
+```
+
+### Interactive refresh picker
+
+Running `awssso refresh` with no arguments shows a numbered session list. Type any combination of:
+
+| Input | Meaning |
+|-------|---------|
+| `2` | Session 2 only |
+| `1 2 3` | Sessions 1, 2, and 3 |
+| `1,3,5` | Sessions 1, 3, and 5 |
+| `1-4` | Sessions 1 through 4 |
+| `1-3 5` | Sessions 1, 2, 3, and 5 |
+| `all` | Every session |
+
+Selected sessions are refreshed in parallel.
 
 ### Why `--private` Matters
 
-Without `--private`, your default browser opens with existing cookies and may auto-authenticate as the wrong identity. With `--private`:
-- A fresh incognito/InPrivate window opens with no cached session
-- You get a clean login prompt where you choose the correct email
-- Each session gets an isolated auth flow
+Without `--private`, your browser opens with existing cookies and may auto-authenticate as the wrong identity. With `--private`, a fresh incognito/InPrivate window opens with no cached session.
 
-Browser detection order:
-- **Windows**: Edge (InPrivate) → Chrome (Incognito) → Firefox (Private) → default browser
-- **macOS**: Chrome (Incognito) → Firefox (Private) → default browser
-- **Linux**: Chrome/Chromium (Incognito) → Firefox (Private) → xdg-open
+### Browser Detection
 
-## Export Formats
+| Platform | Search Order |
+|----------|-------------|
+| **macOS** | Chrome → Firefox → Brave (checks `/Applications/` and `~/Applications/`) → `open -a` fallback → default |
+| **Windows** | Edge (InPrivate) → Chrome (Incognito) → Firefox (Private) → default |
+| **Linux** | Chrome / Chromium → Firefox → `xdg-open` fallback |
 
-```powershell
-# Shell environment variables (PowerShell/Bash)
-awssso export --profile my-profile --format env
+---
 
-# Terraform environment variables
-awssso export --profile my-profile --format terraform
+## Environment Colors
 
-# Docker environment (for docker run --env-file)
-awssso export --profile my-profile --format docker
+Profiles are automatically color-coded based on keywords in the profile or role name:
 
-# Raw JSON
-awssso export --profile my-profile --format json
+| Color | Environment | Detected Keywords |
+|-------|-------------|-------------------|
+| 🔴 Red | Production | `prod`, `prd`, `pro`, `live`, `master` |
+| 🟡 Yellow | Staging | `staging`, `stage`, `stg`, `uat`, `preprod` |
+| 🟡 Yellow | OAT | `oat`, `e2e`, `qa` |
+| 🟣 Magenta | Integration | `int`, `integration` |
+| ⚪ White | Sandbox | `sandbox`, `sbx` |
+| 🟢 Green | Development | `dev`, `development`, `test` |
 
-# YAML
-awssso export --profile my-profile --format yaml
+Production profiles show a confirmation prompt before any action.
 
-# credential_process config line
-awssso export --profile my-profile --format credential_process
+---
+
+## Interactive Shell
+
+Run `awssso` with no arguments (or `awssso shell`) to enter an interactive session where you type commands without the `awssso` prefix each time.
+
+### macOS / Linux
+
+```bash
+awssso
 ```
 
+```
+awssso › whoami
+awssso › profiles
+awssso › login --profile prod --private
+awssso › refresh
+awssso › exit
+```
+
+### Windows (PowerShell)
+
+```powershell
+awssso
+```
+
+```
+awssso › whoami
+awssso › profiles
+awssso › exit
+```
+
+All commands work exactly as normal, including interactive ones like `switch`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
+
+> **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names · `Ctrl+R` searches history · `Ctrl+C` clears the current line · `Ctrl+D` exits.
+
+---
+
+## Auto-Refresh
+
+Keep sessions alive automatically without manual intervention. Two modes are available depending on whether you want a foreground process or a persistent background service.
+
+> **Note:** Only sessions with a cached OIDC refresh token are refreshed silently. Sessions that have fully expired and require browser login will be reported in the output but skipped — run `awssso login --session <name>` to restore them.
+
+### Daemon (foreground)
+
+Runs in your terminal and refreshes all sessions on a timer. Stop it with `Ctrl+C`.
+
+**macOS / Linux**
+```bash
+# Refresh every 60 minutes (default)
+awssso daemon
+
+# Custom interval
+awssso daemon --interval 30
+```
+
+**Windows (PowerShell)**
+```powershell
+awssso daemon
+awssso daemon --interval 30
+```
+
+### Service (background — survives reboots)
+
+Installs a persistent background service that runs automatically, even after a restart.
+
+| Platform | Backend |
+|----------|---------|
+| macOS | launchd (`~/Library/LaunchAgents/`) |
+| Windows | Task Scheduler (`schtasks`) |
+| Linux | cron |
+
+**macOS / Linux**
+```bash
+# Install and start (60 min default)
+awssso service --install
+awssso service --install --interval 30
+
+# Pause without losing config
+awssso service --off
+
+# Resume
+awssso service --on
+
+# Check status
+awssso service --status
+
+# Remove completely
+awssso service --uninstall
+```
+
+**Windows (PowerShell)**
+```powershell
+awssso service --install
+awssso service --install --interval 30
+awssso service --off
+awssso service --on
+awssso service --status
+awssso service --uninstall
+```
+
+Logs are written to:
+- **macOS:** `~/Library/Logs/awssso-refresh.log`
+- **Linux:** `~/.local/share/awssso/refresh.log`
+- **Windows:** viewable in Task Scheduler history
+
+---
+
 ## Interactive Dashboard
+
+### macOS / Linux
+
+```bash
+awssso dashboard
+```
+
+### Windows (PowerShell)
 
 ```powershell
 awssso dashboard
 ```
 
-A full-screen TUI showing all SSO sessions with real-time status. Keyboard shortcuts:
-- `↑`/`↓` — navigate sessions
-- `r` — refresh selected session
-- `l` — login to selected session
-- `q` / `Esc` — quit
+A full-screen TUI showing all SSO sessions with real-time status.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate sessions |
+| `r` | Refresh selected session |
+| `l` | Login to selected session |
+| `q` / `Esc` | Quit |
+
+---
 
 ## Project Structure
 
@@ -227,24 +587,31 @@ A full-screen TUI showing all SSO sessions with real-time status. Keyboard short
 ├── main.go              # CLI entry point: flag parsing, command dispatch, usage
 ├── commands.go          # Command handlers + shared helpers (resolveValidToken, etc.)
 ├── awsconfig.go         # ~/.aws/config parsing, token cache, profile/session CRUD
-├── sso.go              # AWS SSO OIDC login, token refresh, role credentials, console
-├── cloudeng.go         # Environment detection, recent profiles, export formats
-├── dashboard.go        # Interactive TUI dashboard (bubbletea)
-├── util.go             # Utility functions (formatting, Levenshtein, filtering)
-├── ui.go               # Terminal UI helpers (Windows, build-tagged)
-├── ui_other.go         # Terminal UI helpers (macOS/Linux, build-tagged)
-├── browser_windows.go  # Browser open + InPrivate (Windows)
-├── browser_other.go    # Browser open + incognito (macOS/Linux)
-├── *_test.go           # Tests (config parsing, token paths, env detection, utilities)
-├── go.mod / go.sum     # Module definition
-└── .kiro/steering/     # AI assistant steering rules
+├── sso.go               # AWS SSO OIDC login, token refresh, role credentials, console
+├── cloudeng.go          # Environment detection, recent profiles, export formats
+├── completion.go        # Tab completion scripts and install logic (zsh, bash, fish)
+├── autorefresh.go       # Daemon loop and service install/uninstall (launchd, Task Scheduler, cron)
+├── repl.go              # Interactive shell mode (no-arg entry point and `shell` command)
+├── dashboard.go         # Interactive TUI dashboard (bubbletea)
+├── util.go              # Utility functions (formatting, Levenshtein, filtering)
+├── ui.go                # Terminal UI helpers       [Windows build tag]
+├── ui_other.go          # Terminal UI helpers       [macOS / Linux build tag]
+├── browser_windows.go   # Browser open + InPrivate  [Windows build tag]
+├── browser_other.go     # Browser open + incognito  [macOS / Linux build tag]
+├── *_test.go            # Tests
+├── CHANGELOG.md         # Version history (Fibonacci versioning)
+└── CLAUDE.md            # Mandatory rules for AI agents working in this repo
 ```
+
+---
 
 ## Development
 
+### macOS / Linux
+
 ```bash
 # Build
-go build -o awssso.exe
+go build -o awssso .
 
 # Run tests
 go test ./...
@@ -253,6 +620,21 @@ go test ./...
 go vet ./...
 ```
 
+### Windows
+
+```powershell
+# Build
+go build -o awssso.exe .
+
+# Run tests
+go test ./...
+
+# Static analysis
+go vet ./...
+```
+
+---
+
 ## Dependencies
 
 | Package | Purpose |
@@ -260,6 +642,9 @@ go vet ./...
 | `github.com/aws/aws-sdk-go-v2` | AWS SDK (SSO, SSOOIDC, Signin) |
 | `github.com/charmbracelet/bubbletea` | Interactive TUI framework |
 | `github.com/charmbracelet/lipgloss` | Terminal styling |
+| `github.com/chzyer/readline` | Line editing, history, and tab completion for the interactive shell |
+
+---
 
 ## License
 

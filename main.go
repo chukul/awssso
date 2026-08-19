@@ -48,9 +48,24 @@ func main() {
 	exportProfile := exportCmd.String("profile", "", "AWS profile name")
 	exportFormat := exportCmd.String("format", "env", "Export format: env, terraform, docker, json, yaml, credential_process")
 
+	completionCmd := flag.NewFlagSet("completion", flag.ExitOnError)
+	completionShell := completionCmd.String("shell", "", "Shell type: zsh, bash, or fish (auto-detected if omitted)")
+	completionInstall := completionCmd.Bool("install", false, "Install the completion script for the current user")
+
+	daemonCmd := flag.NewFlagSet("daemon", flag.ExitOnError)
+	daemonInterval := daemonCmd.Int("interval", 60, "Refresh interval in minutes")
+
+	serviceCmd := flag.NewFlagSet("service", flag.ExitOnError)
+	serviceInstall := serviceCmd.Bool("install", false, "Install auto-refresh as a background service")
+	serviceUninstall := serviceCmd.Bool("uninstall", false, "Remove the background service")
+	serviceOn := serviceCmd.Bool("on", false, "Enable (resume) a previously disabled service")
+	serviceOff := serviceCmd.Bool("off", false, "Disable (pause) the service without removing it")
+	serviceStatus := serviceCmd.Bool("status", false, "Check whether the background service is running")
+	serviceInterval := serviceCmd.Int("interval", 60, "Refresh interval in minutes (used with --install)")
+
 	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+		runREPL()
+		return
 	}
 
 	switch os.Args[1] {
@@ -86,10 +101,25 @@ func main() {
 		runSessions()
 	case "refresh":
 		_ = refreshCmd.Parse(os.Args[2:])
-		runRefresh(*refreshProfile, *refreshSession, *refreshForce, *refreshPrivate)
+		runRefresh(*refreshProfile, *refreshSession, refreshCmd.Args(), *refreshForce, *refreshPrivate)
 	case "export":
 		_ = exportCmd.Parse(os.Args[2:])
 		runExport(*exportProfile, *exportFormat)
+	case "shell":
+		runREPL()
+	case "completion":
+		_ = completionCmd.Parse(os.Args[2:])
+		runCompletion(*completionShell, *completionInstall)
+	case "daemon":
+		_ = daemonCmd.Parse(os.Args[2:])
+		runDaemon(*daemonInterval)
+	case "service":
+		_ = serviceCmd.Parse(os.Args[2:])
+		runService(*serviceInstall, *serviceUninstall, *serviceOn, *serviceOff, *serviceStatus, *serviceInterval)
+	case "__list-profiles":
+		runListProfiles()
+	case "__list-sessions":
+		runListSessions()
 	case "help", "-h", "--help":
 		printUsage()
 		os.Exit(0)
@@ -122,6 +152,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %swhoami%s      Show current profile, account, role, and SSO token status\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %squick%s       Quick switch between recently used profiles\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sexport%s      Export credentials for DevOps tools (Terraform, Docker, etc.)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sshell%s       Start an interactive session (also runs when no command is given)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %scompletion%s  Generate shell tab-completion script (zsh, bash, fish)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sdaemon%s      Run auto-refresh loop in the foreground\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sservice%s     Install/uninstall auto-refresh as a background service\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "\n  %shelp%s        Show this help message\n\n", Cyan, Reset)
 
 	fmt.Fprintf(os.Stderr, "%sOPTIONS:%s\n", Bold, Reset)

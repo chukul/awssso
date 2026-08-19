@@ -17,8 +17,13 @@ func TestDetectEnvironment(t *testing.T) {
 		{"uat-testing", "Tester", "staging"},
 		{"oat-verification", "QARole", "oat"},
 		{"e2e-tests", "TestRunner", "oat"},
-		{"dev-sandbox", "AdminRole", "development"},
+		{"int-account", "DevRole", "integration"},
+		{"integration-env", "Tester", "integration"},
+		{"dev-sandbox", "AdminRole", "sandbox"},
+		{"my-sandbox", "AdminRole", "sandbox"},
+		{"sbx-account", "DevRole", "sandbox"},
 		{"my-test-env", "Developer", "development"},
+		{"dev-account", "AdminRole", "development"},
 		{"random-account", "SomeRole", "unknown"},
 	}
 
@@ -41,6 +46,15 @@ func TestGetEnvironmentColor(t *testing.T) {
 	}
 	if getEnvironmentColor("staging") != Yellow {
 		t.Error("staging should be Yellow")
+	}
+	if getEnvironmentColor("oat") != Yellow {
+		t.Error("oat should be Yellow")
+	}
+	if getEnvironmentColor("integration") != Magenta {
+		t.Error("integration should be Magenta")
+	}
+	if getEnvironmentColor("sandbox") != White {
+		t.Error("sandbox should be White")
 	}
 	if getEnvironmentColor("development") != Green {
 		t.Error("development should be Green")
