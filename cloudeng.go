@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -34,7 +35,21 @@ func detectEnvironment(profile *AWSProfile) string {
 		}
 	}
 
-	devKeywords := []string{"dev", "development", "test", "sandbox", "sbx"}
+	intKeywords := []string{"int", "integration"}
+	for _, keyword := range intKeywords {
+		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
+			return "integration"
+		}
+	}
+
+	sandboxKeywords := []string{"sandbox", "sbx"}
+	for _, keyword := range sandboxKeywords {
+		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
+			return "sandbox"
+		}
+	}
+
+	devKeywords := []string{"dev", "development", "test"}
 	for _, keyword := range devKeywords {
 		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
 			return "development"
@@ -51,7 +66,11 @@ func getEnvironmentColor(env string) string {
 	case "staging":
 		return Yellow
 	case "oat":
+		return Yellow
+	case "integration":
 		return Magenta
+	case "sandbox":
+		return White
 	case "development":
 		return Green
 	default:
@@ -66,7 +85,11 @@ func getEnvironmentSymbol(env string) string {
 	case "staging":
 		return "🟡"
 	case "oat":
+		return "🟡"
+	case "integration":
 		return "🟣"
+	case "sandbox":
+		return "⚪"
 	case "development":
 		return "🟢"
 	default:
@@ -221,6 +244,12 @@ const (
 func exportCredentials(creds *CredentialResponse, format ExportFormat) string {
 	switch format {
 	case FormatEnv:
+		if runtime.GOOS == "windows" {
+			return fmt.Sprintf(`$env:AWS_ACCESS_KEY_ID = "%s"
+$env:AWS_SECRET_ACCESS_KEY = "%s"
+$env:AWS_SESSION_TOKEN = "%s"
+# Expires: %s`, creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken, creds.Expiration)
+		}
 		return fmt.Sprintf(`export AWS_ACCESS_KEY_ID="%s"
 export AWS_SECRET_ACCESS_KEY="%s"
 export AWS_SESSION_TOKEN="%s"
@@ -234,6 +263,11 @@ aws_session_token = "%s"
 # Expires: %s`, creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken, creds.Expiration)
 
 	case FormatDocker:
+		if runtime.GOOS == "windows" {
+			// PowerShell uses backtick ` for line continuation
+			return fmt.Sprintf("docker run `\n  -e AWS_ACCESS_KEY_ID=\"%s\" `\n  -e AWS_SECRET_ACCESS_KEY=\"%s\" `\n  -e AWS_SESSION_TOKEN=\"%s\" `\n  your-image:tag\n# Expires: %s",
+				creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken, creds.Expiration)
+		}
 		return fmt.Sprintf(`docker run \
   -e AWS_ACCESS_KEY_ID="%s" \
   -e AWS_SECRET_ACCESS_KEY="%s" \
