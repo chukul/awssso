@@ -42,7 +42,7 @@ var replCommandFlags = map[string][]string{
 	"export":     {"--profile", "--format"},
 	"copy":       {"--profile", "--format"},
 	"prompt":     {"--install"},
-	"group":      {"--add", "--remove"},
+	"group":      {"--add", "--remove", "--profile"},
 	"profiles":   {"--group"},
 	"completion": {"--shell", "--install"},
 }

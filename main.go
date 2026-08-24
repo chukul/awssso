@@ -64,6 +64,7 @@ func main() {
 	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
 	groupAdd := groupCmd.Bool("add", false, "Add profile to a group tag")
 	groupRemove := groupCmd.Bool("remove", false, "Remove profile from a group tag")
+	groupProfile := groupCmd.String("profile", "", "Profile name (alternative to positional arg)")
 
 	profilesCmd2 := flag.NewFlagSet("profiles", flag.ExitOnError)
 	profilesGroup := profilesCmd2.String("group", "", "Filter profiles by group tag")
@@ -147,7 +148,7 @@ func main() {
 		}
 	case "group":
 		_ = groupCmd.Parse(os.Args[2:])
-		runGroup(groupCmd.Args(), *groupAdd, *groupRemove)
+		runGroup(groupCmd.Args(), *groupAdd, *groupRemove, *groupProfile)
 	case "profiles":
 		_ = profilesCmd2.Parse(os.Args[2:])
 		runProfilesFiltered(*profilesGroup)
