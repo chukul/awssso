@@ -6,6 +6,15 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v2.0.2 — 2026-08-24
+
+### Fixes
+- **Multiple REPL sessions no longer interfere** — each session now writes its active profile to a session-specific file (`active_profile_<pid>`) instead of a shared one; switching profiles in one terminal window no longer changes the prompt badge in another
+- **Sync files are cleaned up automatically** — the file is removed when the REPL exits normally (via `exit` or Ctrl+D); stale files from crashed or killed sessions are deleted on the next REPL startup
+- Cross-platform dead-process detection: Unix uses signal 0, Windows uses `FindProcess`
+
+---
+
 ## v2.0.1 — 2026-08-24
 
 ### Features

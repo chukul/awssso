@@ -562,7 +562,7 @@ awssso prompt --install   # auto-detects shell and patches the config
 
 Output: `[🔴 prod]`, `[🟡 oat]`, `[🟢 dev]`, etc. — nothing if `$AWS_PROFILE` is not set.
 
-The badge also appears live in the `awssso` interactive shell prompt and updates as soon as you switch profiles.
+The badge updates live in the `awssso` interactive shell prompt as soon as you switch profiles. Multiple terminal windows each track their own active profile independently — switching in one window never affects another.
 
 ### `awssso rename` — Rename a profile
 
