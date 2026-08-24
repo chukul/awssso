@@ -32,7 +32,7 @@ var replCommands = []string{
 }
 
 var replCommandFlags = map[string][]string{
-	"login":      {"--profile", "--session", "--private"},
+	"login":      {"--profile", "--session", "--private", "--group"},
 	"switch":     {"--profile", "--session", "--private"},
 	"refresh":    {"--profile", "--session", "--private", "--force"},
 	"credential": {"--profile"},
@@ -91,6 +91,8 @@ func (c *replCompleter) Do(line []rune, pos int) ([][]rune, int) {
 		return filterComplete(formatValues, prefix)
 	case "--shell":
 		return filterComplete(shellValues, prefix)
+	case "--group":
+		return filterComplete(allGroupTags(), prefix)
 	}
 
 	// 3. Current prefix starts with "-" → complete remaining flag names

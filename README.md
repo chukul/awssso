@@ -60,7 +60,7 @@ These commands work on all platforms. Examples below show the platform-appropria
 
 | Command | Description |
 |---------|-------------|
-| `login` | Authenticate via AWS SSO and cache credentials |
+| `login` | Authenticate via AWS SSO; `--group <tag>` logs in to all sessions for a group |
 | `switch` | Interactively select an AWS account/role and create a profile |
 | `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
 | `console` | Open AWS Management Console in browser, pre-authenticated |
@@ -601,6 +601,10 @@ awssso group eks --remove prof1 prof2 prof3
 
 # Filter profiles list by group
 awssso profiles --group eks
+
+# Login to all sessions used by profiles in a group
+awssso login --group eks
+awssso login --group eks --private   # incognito window per session
 ```
 
 ### `awssso pin` / `awssso unpin` — Favourites
@@ -669,31 +673,40 @@ stringData:
 
 ## Development
 
-### macOS / Linux
+### Makefile (macOS / Linux)
 
 ```bash
-# Build
+make build        # compile only
+make install      # compile + copy to /usr/local/bin/awssso
+make test         # run all tests
+make patch        # bump patch version, update CHANGELOG, build, install
+make minor        # bump minor version
+make major        # bump to next Fibonacci major version
+```
+
+### Manual (macOS / Linux)
+
+```bash
 go build -o awssso .
-
-# Run tests
 go test ./...
-
-# Static analysis
 go vet ./...
 ```
 
 ### Windows
 
 ```powershell
-# Build
 go build -o awssso.exe .
-
-# Run tests
 go test ./...
-
-# Static analysis
 go vet ./...
 ```
+
+### Git Hooks (auto-installed)
+
+| Hook | Trigger | Action |
+|------|---------|--------|
+| `post-commit` | After every commit | Builds and installs `/usr/local/bin/awssso` automatically |
+| `pre-push` | Before every push | Blocks push if `README.md` or `CHANGELOG.md` were not updated |
+| `pre-commit` | Before every commit | Blocks direct commits to `main` |
 
 ---
 

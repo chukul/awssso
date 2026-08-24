@@ -310,6 +310,107 @@ func loadProfile(config *AWSConfig, profileName string) (*AWSProfile, error) {
 	return profile, nil
 }
 
+// runLoginGroup logs in to every unique SSO session used by profiles in a group.
+func runLoginGroup(group string, private bool) {
+	members := profilesInGroup(group)
+	if len(members) == 0 {
+		printError(fmt.Sprintf("Group %q is empty or does not exist.", group))
+		printInfo(fmt.Sprintf("Add profiles: awssso group %s --add <profile>", group))
+		os.Exit(1)
+	}
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+
+	// Collect unique sessions used by group members
+	type sessionEntry struct {
+		name     string
+		startURL string
+		region   string
+		email    string
+	}
+	seen := map[string]bool{}
+	var sessions []sessionEntry
+
+	for _, profileName := range members {
+		p, ok := config.Profiles[profileName]
+		if !ok {
+			printWarning(fmt.Sprintf("Profile %q not found in config — skipped", profileName))
+			continue
+		}
+		key := p.SSOSession
+		if key == "" {
+			key = p.SSOStartURL
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		entry := sessionEntry{}
+		if p.SSOSession != "" {
+			entry.name = p.SSOSession
+			if sess, found := config.Sessions[p.SSOSession]; found {
+				entry.startURL = sess.SSOStartURL
+				entry.region = sess.SSORegion
+				entry.email = sess.SSOAccountEmail
+			}
+		} else {
+			entry.name = sessionNameFromURL(p.SSOStartURL)
+			entry.startURL = p.SSOStartURL
+			entry.region = p.SSORegion
+		}
+		sessions = append(sessions, entry)
+	}
+
+	if len(sessions) == 0 {
+		printError("No SSO sessions found for profiles in this group.")
+		os.Exit(1)
+	}
+
+	printHeader(fmt.Sprintf("LOGIN — GROUP: %s (%d session(s))", group, len(sessions)))
+
+	for _, s := range sessions {
+		printInfo(fmt.Sprintf("Logging in to session: %s%s%s", Bold, s.name, Reset))
+		if s.email != "" {
+			printInfo(fmt.Sprintf("Identity: %s%s%s", Magenta, s.email, Reset))
+		}
+		fmt.Println()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+		mockProfile := &AWSProfile{SSOSession: s.name}
+		if s.name == sessionNameFromURL(s.startURL) {
+			mockProfile = &AWSProfile{SSOStartURL: s.startURL}
+		}
+		cachePath, pathErr := getSSOTokenPath(mockProfile, config)
+		if pathErr != nil {
+			printError(fmt.Sprintf("Cannot resolve token path for %q: %v", s.name, pathErr))
+			cancel()
+			continue
+		}
+
+		usePrivate := private
+		if !usePrivate {
+			if sess, found := config.Sessions[s.name]; found && sess.LoginPrivate == "true" {
+				usePrivate = true
+			}
+		}
+
+		_, loginErr := loginSSOWithHint(ctx, s.startURL, s.region, cachePath, s.name, s.email, usePrivate)
+		cancel()
+		if loginErr != nil {
+			printError(fmt.Sprintf("Login failed for %q: %v", s.name, loginErr))
+		} else {
+			printSuccess(fmt.Sprintf("Logged in to session %q", s.name))
+		}
+		fmt.Println()
+	}
+}
+
 func runLogin(profileName string, sessionName string, private bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

@@ -13,6 +13,7 @@ func main() {
 	loginProfile := loginCmd.String("profile", "", "AWS profile name")
 	loginSession := loginCmd.String("session", "", "SSO session name (for multi-identity setups)")
 	loginPrivate := loginCmd.Bool("private", false, "Open browser in incognito/InPrivate mode (useful for multi-identity)")
+	loginGroup := loginCmd.String("group", "", "Login to all SSO sessions used by profiles in this group")
 
 	credCmd := flag.NewFlagSet("credential", flag.ExitOnError)
 	credProfile := credCmd.String("profile", "", "AWS profile name")
@@ -77,7 +78,11 @@ func main() {
 	switch os.Args[1] {
 	case "login":
 		_ = loginCmd.Parse(os.Args[2:])
-		runLogin(*loginProfile, *loginSession, *loginPrivate)
+		if *loginGroup != "" {
+			runLoginGroup(*loginGroup, *loginPrivate)
+		} else {
+			runLogin(*loginProfile, *loginSession, *loginPrivate)
+		}
 	case "credential":
 		_ = credCmd.Parse(os.Args[2:])
 		runCredential(*credProfile)
