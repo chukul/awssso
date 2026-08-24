@@ -40,8 +40,6 @@ _awssso_commands() {
     'refresh:Refresh expired SSO tokens'
     'export:Export credentials for DevOps tools'
     'shell:Start an interactive session'
-    'daemon:Run auto-refresh loop in the foreground'
-    'service:Install/uninstall auto-refresh as a background service'
     'help:Show help message'
   )
   _describe -t commands 'awssso command' commands
@@ -81,17 +79,6 @@ _awssso() {
             '--profile[AWS profile name]:profile:_awssso_profiles' \
             '--format[Export format]:format:(env terraform docker json yaml kyaml credential_process)'
           ;;
-        daemon)
-          _arguments \
-            '--interval[Refresh interval in minutes (default 60)]:minutes'
-          ;;
-        service)
-          _arguments \
-            '--install[Install as a background service]' \
-            '--uninstall[Remove the background service]' \
-            '--status[Check whether the service is running]' \
-            '--interval[Refresh interval in minutes (default 60)]:minutes'
-          ;;
       esac
       ;;
   esac
@@ -104,7 +91,7 @@ const bashCompletion = `_awssso() {
   local cur prev words cword
   _init_completion || return
 
-  local commands="login credential switch console dashboard whoami quick profiles delete sessions refresh export shell daemon service help"
+  local commands="login credential switch console dashboard whoami quick profiles delete sessions refresh export shell help"
 
   if [[ $cword -eq 1 ]]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -153,8 +140,8 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $commands = @('login','credential','switch','console','dashboard','whoami','quick',
-                  'profiles','delete','sessions','refresh','export','shell','daemon',
-                  'service','completion','help')
+                  'profiles','delete','sessions','refresh','export','shell',
+                  'completion','help')
 
     $flagMap = @{
         'login'      = @('--profile','--session','--private')
@@ -165,8 +152,6 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
         'whoami'     = @('--profile')
         'delete'     = @('--profile')
         'export'     = @('--profile','--format')
-        'daemon'     = @('--interval')
-        'service'    = @('--install','--uninstall','--on','--off','--status','--interval')
         'completion' = @('--shell','--install')
     }
 
@@ -220,7 +205,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
 `
 
 const fishCompletion = `# awssso fish shell completions
-set -l commands login credential switch console dashboard whoami quick profiles delete sessions refresh export shell daemon service help
+set -l commands login credential switch console dashboard whoami quick profiles delete sessions refresh export shell help
 
 # Subcommands (only shown before a subcommand is typed)
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a login      -d "Authenticate via AWS SSO"
@@ -236,18 +221,7 @@ complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a sessions
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a refresh    -d "Refresh expired SSO tokens"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a export     -d "Export credentials for DevOps tools"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a shell      -d "Start an interactive session"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a daemon     -d "Run auto-refresh loop in the foreground"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a service    -d "Install/uninstall auto-refresh as a background service"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a help       -d "Show help message"
-
-# daemon flags
-complete -c awssso -l interval -r -d "Refresh interval in minutes (default 60)" \
-  -n "__fish_seen_subcommand_from daemon service"
-
-# service flags
-complete -c awssso -l install   -d "Install as a background service"  -n "__fish_seen_subcommand_from service"
-complete -c awssso -l uninstall -d "Remove the background service"    -n "__fish_seen_subcommand_from service"
-complete -c awssso -l status    -d "Check whether the service is running" -n "__fish_seen_subcommand_from service"
 
 # --profile (dynamic, reads ~/.aws/config)
 complete -c awssso -l profile -r -d "AWS profile name" \

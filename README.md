@@ -13,15 +13,13 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **AWS Console federation** — open the Management Console pre-authenticated
 - **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`)
 - **Copy to clipboard** — `awssso copy` copies credentials in any format directly to the clipboard
-- **Role chaining** — `awssso assume` uses STS AssumeRole on top of any existing profile
 - **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback otherwise
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
 - **Interactive shell** — `awssso` with no args drops into a REPL with readline history and tab completion
 - **Tab completion** — zsh, bash, fish, PowerShell; profiles and session names complete dynamically
-- **Auto-refresh service** — daemon and system service (launchd / Task Scheduler / cron) with on/off toggle
 - **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
 - **Profile management** — rename, pin/unpin favourites, health check (`doctor`), first-time wizard (`init`)
-- **Shell prompt integration** — `awssso prompt` outputs a badge for PS1/PROMPT embedding
+- **Shell prompt integration** — `awssso prompt --install` patches your shell config automatically; badge updates live as you switch profiles
 - **Desktop notifications** — alerts when sessions need manual login (macOS, Windows, Linux)
 
 ---
@@ -71,7 +69,6 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `quick` | Quick switch between recently used profiles |
 | `export` | Export credentials in multiple formats |
 | `copy` | Fetch credentials and copy to system clipboard |
-| `assume` | Assume an IAM role via STS on top of the current profile |
 | `doctor` | Run a health check on config, tokens, and PATH |
 | `prompt` | Output a profile badge for shell PS1/PROMPT integration |
 | `init` | First-time setup wizard (URL → login → account/role → save) |
@@ -81,8 +78,6 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `dashboard` | Interactive TUI session management dashboard |
 | `shell` | Start an interactive session (also the default when no command is given) |
 | `completion` | Generate shell tab-completion script |
-| `daemon` | Run auto-refresh loop in the foreground |
-| `service` | Install/uninstall auto-refresh as a background system service |
 
 ### Options
 
@@ -91,11 +86,8 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `--profile <name>` | Most commands | AWS profile name (defaults to `$AWS_PROFILE` or `default`) |
 | `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session (multi-identity) |
 | `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
-| `--format <fmt>` | `export`, `copy`, `assume` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
+| `--format <fmt>` | `export`, `copy` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
 | `--force` | `refresh` | Refresh even valid tokens (proactive refresh) |
-| `--interval <min>` | `daemon`, `service` | Auto-refresh interval in minutes (default: `60`) |
-| `--role <arn>` | `assume` | IAM Role ARN to assume |
-| `--session-name <n>` | `assume` | Role session name (auto-derived if omitted) |
 
 ---
 
@@ -501,77 +493,6 @@ All commands work exactly as normal, including interactive ones like `switch`, `
 
 ---
 
-## Auto-Refresh
-
-Keep sessions alive automatically without manual intervention. Two modes are available depending on whether you want a foreground process or a persistent background service.
-
-> **Note:** Only sessions with a cached OIDC refresh token are refreshed silently. Sessions that have fully expired and require browser login will be reported in the output but skipped — run `awssso login --session <name>` to restore them.
-
-### Daemon (foreground)
-
-Runs in your terminal and refreshes all sessions on a timer. Stop it with `Ctrl+C`.
-
-**macOS / Linux**
-```bash
-# Refresh every 60 minutes (default)
-awssso daemon
-
-# Custom interval
-awssso daemon --interval 30
-```
-
-**Windows (PowerShell)**
-```powershell
-awssso daemon
-awssso daemon --interval 30
-```
-
-### Service (background — survives reboots)
-
-Installs a persistent background service that runs automatically, even after a restart.
-
-| Platform | Backend |
-|----------|---------|
-| macOS | launchd (`~/Library/LaunchAgents/`) |
-| Windows | Task Scheduler (`schtasks`) |
-| Linux | cron |
-
-**macOS / Linux**
-```bash
-# Install and start (60 min default)
-awssso service --install
-awssso service --install --interval 30
-
-# Pause without losing config
-awssso service --off
-
-# Resume
-awssso service --on
-
-# Check status
-awssso service --status
-
-# Remove completely
-awssso service --uninstall
-```
-
-**Windows (PowerShell)**
-```powershell
-awssso service --install
-awssso service --install --interval 30
-awssso service --off
-awssso service --on
-awssso service --status
-awssso service --uninstall
-```
-
-Logs are written to:
-- **macOS:** `~/Library/Logs/awssso-refresh.log`
-- **Linux:** `~/.local/share/awssso/refresh.log`
-- **Windows:** viewable in Task Scheduler history
-
----
-
 ## Interactive Dashboard
 
 ### macOS / Linux
@@ -622,15 +543,6 @@ awssso copy --profile my-profile --format terraform
 awssso copy --profile my-profile
 ```
 
-### `awssso assume` — Role chaining
-
-Assumes an IAM role via STS on top of the credentials from any existing profile.
-
-```bash
-awssso assume --role arn:aws:iam::123456789012:role/MyRole
-awssso assume --role arn:aws:iam::123456789012:role/MyRole --profile base-profile --format env
-```
-
 ### `awssso doctor` — Health check
 
 Validates config, checks token status per session, detects orphaned profiles, and verifies the binary is on PATH.
@@ -641,20 +553,16 @@ awssso doctor
 
 ### `awssso prompt` — Shell PS1 integration
 
-Outputs a compact profile badge for embedding in your shell prompt.
+Outputs a compact, coloured profile badge. Run `--install` once and it patches your shell config automatically — no manual editing needed.
 
-**macOS / Linux** — add to `~/.zshrc` or `~/.bashrc`:
+**macOS / Linux / Windows**
 ```bash
-PROMPT='$(awssso prompt) '$PROMPT     # zsh
-PS1='$(awssso prompt) '$PS1           # bash
+awssso prompt --install   # auto-detects shell and patches the config
 ```
 
-**Windows** — add to `$PROFILE`:
-```powershell
-function prompt { "$(awssso prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> " }
-```
+Output: `[🔴 prod]`, `[🟡 oat]`, `[🟢 dev]`, etc. — nothing if `$AWS_PROFILE` is not set.
 
-Output: `[🔴 prod]`, `[🟢 dev]`, etc. — nothing if `$AWS_PROFILE` is not set.
+The badge also appears live in the `awssso` interactive shell prompt and updates as soon as you switch profiles.
 
 ### `awssso rename` — Rename a profile
 
@@ -705,10 +613,8 @@ stringData:
 ├── sso.go               # AWS SSO OIDC login, token refresh, role credentials, console
 ├── cloudeng.go          # Environment detection, recent profiles, export formats
 ├── completion.go        # Tab completion scripts and install logic (zsh, bash, fish, PowerShell)
-├── autorefresh.go       # Daemon loop and service install/uninstall (launchd, Task Scheduler, cron)
 ├── repl.go              # Interactive shell mode (no-arg entry point and `shell` command)
 ├── clipboard.go         # awssso copy — credential clipboard support (pbcopy/clip/xclip)
-├── assume.go            # awssso assume — STS AssumeRole / role chaining
 ├── doctor.go            # awssso doctor — config and token health check
 ├── prompt.go            # awssso prompt — shell PS1 badge output
 ├── init.go              # awssso init — first-time setup wizard

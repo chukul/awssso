@@ -134,6 +134,39 @@ type RecentProfiles struct {
 	Profiles []RecentProfile `json:"profiles"`
 }
 
+func getActiveProfilePath() (string, error) {
+	home, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".aws", "sso", "active_profile"), nil
+}
+
+// writeActiveProfile persists the selected profile name so the REPL shell
+// can read it back and update its own environment after a subprocess exits.
+func writeActiveProfile(name string) {
+	path, err := getActiveProfilePath()
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0700)
+	_ = os.WriteFile(path, []byte(name), 0600)
+}
+
+// readActiveProfile returns the last profile written by writeActiveProfile,
+// or empty string if none.
+func readActiveProfile() string {
+	path, err := getActiveProfilePath()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func getRecentProfilesPath() (string, error) {
 	home, err := homeDir()
 	if err != nil {

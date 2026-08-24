@@ -25,8 +25,8 @@ func isKnownCommand(cmd string) bool {
 var replCommands = []string{
 	"login", "credential", "switch", "console", "dashboard",
 	"whoami", "quick", "profiles", "delete", "sessions",
-	"refresh", "export", "copy", "assume", "doctor", "prompt",
-	"init", "rename", "pin", "unpin", "shell", "daemon", "service",
+	"refresh", "export", "copy", "doctor", "prompt",
+	"init", "rename", "pin", "unpin", "shell",
 	"completion", "help", "exit", "quit",
 }
 
@@ -40,9 +40,7 @@ var replCommandFlags = map[string][]string{
 	"delete":     {"--profile"},
 	"export":     {"--profile", "--format"},
 	"copy":       {"--profile", "--format"},
-	"assume":     {"--role", "--profile", "--session-name", "--format"},
-	"daemon":     {"--interval"},
-	"service":    {"--install", "--uninstall", "--on", "--off", "--status", "--interval"},
+	"prompt":     {"--install"},
 	"completion": {"--shell", "--install"},
 }
 
@@ -130,6 +128,31 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}
+
+	// Positional-argument commands — complete bare profile names, not --flag pairs
+
+	case "rename":
+		// Both arguments are profile names; always complete from the full list
+		return filterComplete(loadProfileNames(), prefix)
+
+	case "pin":
+		// Only show profiles that are not yet pinned
+		pinned := loadPins()
+		pinnedSet := make(map[string]bool, len(pinned))
+		for _, p := range pinned {
+			pinnedSet[p] = true
+		}
+		var unpinned []string
+		for _, n := range loadProfileNames() {
+			if !pinnedSet[n] {
+				unpinned = append(unpinned, n)
+			}
+		}
+		return filterComplete(unpinned, prefix)
+
+	case "unpin":
+		// Only show profiles that are currently pinned
+		return filterComplete(loadPins(), prefix)
 	}
 
 	return filterComplete(remainingFlagsFor(cmd, tokens, prefix), prefix)
@@ -342,6 +365,12 @@ func runREPL() {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Run()
+
+		// Sync active profile set by subprocess back into our own environment
+		// so the REPL prompt reflects the new selection immediately.
+		if active := readActiveProfile(); active != "" && active != os.Getenv("AWS_PROFILE") {
+			os.Setenv("AWS_PROFILE", active)
+		}
 
 		fmt.Println()
 	}

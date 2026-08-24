@@ -771,6 +771,7 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 	}
 
 	printSuccess(fmt.Sprintf("Profile %q saved to ~/.aws/config!", customProfileName))
+	writeActiveProfile(customProfileName)
 	if nextSteps {
 		runNextSteps(scanner, ctx, customProfileName, newProfile, config)
 	}
@@ -2215,8 +2216,9 @@ func runProfiles() {
 		fmt.Println()
 	}
 
-	// Set AWS_PROFILE for the current process (useful if invoked from scripts)
+	// Set for the current process and persist so the parent REPL can sync
 	os.Setenv("AWS_PROFILE", selectedName)
+	writeActiveProfile(selectedName)
 
 	// Write a helper script that the user can source to activate the profile
 	setProfileScript(selectedName)

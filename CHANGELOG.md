@@ -6,6 +6,18 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v2.0.1 — 2026-08-24
+
+### Features
+- `awssso prompt --install` — automatically patches the shell config file (zsh, bash, fish, PowerShell) so the profile badge appears without any manual editing; idempotent and safe to re-run
+- `awssso prompt` now outputs a coloured badge (`[🔴 prod]`, `[🟢 dev]`, etc.) using the same ANSI colour constants used everywhere else in the tool; previously only the emoji was shown
+
+### Fixes
+- REPL prompt badge now updates immediately after switching profiles — previously the profile name was inherited at startup and never changed because child processes cannot propagate environment variables back to the parent; fixed by writing the active profile to `~/.aws/sso/active_profile` on every selection and reading it back after each subprocess exits
+- `awssso prompt --install` completion: `--install` flag is now included in tab completion for the `prompt` command
+
+---
+
 ## v2.0.0 — 2026-08-24
 
 ### Features
@@ -19,6 +31,10 @@ One version entry is added per merge to `main`, written only when explicitly req
 - `--format kyaml` — new export format that outputs a Kubernetes `Secret` YAML for direct `kubectl apply` piping
 - REPL prompt now shows the active `$AWS_PROFILE` with its environment colour (`awssso [🔴 prod] ›`) and updates live as the profile changes
 - Desktop notifications — daemon sends OS-native alerts (macOS: `osascript`, Windows: PowerShell balloon, Linux: `notify-send`) when sessions expire and cannot be auto-refreshed
+
+### Removed
+- `daemon` and `service` commands removed — auto-refresh functionality has been disabled
+- `assume` command removed — STS role chaining is not compatible with this organisation's SSO setup
 
 ### Fixes
 - **Spinner race condition** — `Stop()` now waits for the spinner goroutine to clear the line before printing the result; previously a 40 ms sleep was too short, causing garbled output like `tokenntials...`

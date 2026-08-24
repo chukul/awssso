@@ -52,26 +52,9 @@ func main() {
 	completionShell := completionCmd.String("shell", "", "Shell type: zsh, bash, or fish (auto-detected if omitted)")
 	completionInstall := completionCmd.Bool("install", false, "Install the completion script for the current user")
 
-	daemonCmd := flag.NewFlagSet("daemon", flag.ExitOnError)
-	daemonInterval := daemonCmd.Int("interval", 60, "Refresh interval in minutes")
-
-	serviceCmd := flag.NewFlagSet("service", flag.ExitOnError)
-	serviceInstall := serviceCmd.Bool("install", false, "Install auto-refresh as a background service")
-	serviceUninstall := serviceCmd.Bool("uninstall", false, "Remove the background service")
-	serviceOn := serviceCmd.Bool("on", false, "Enable (resume) a previously disabled service")
-	serviceOff := serviceCmd.Bool("off", false, "Disable (pause) the service without removing it")
-	serviceStatus := serviceCmd.Bool("status", false, "Check whether the background service is running")
-	serviceInterval := serviceCmd.Int("interval", 60, "Refresh interval in minutes (used with --install)")
-
 	copyCmd := flag.NewFlagSet("copy", flag.ExitOnError)
 	copyProfile := copyCmd.String("profile", "", "AWS profile name")
 	copyFormat := copyCmd.String("format", "env", "Export format: env, terraform, docker, json, yaml, kyaml")
-
-	assumeCmd := flag.NewFlagSet("assume", flag.ExitOnError)
-	assumeRole := assumeCmd.String("role", "", "IAM Role ARN to assume")
-	assumeProfile := assumeCmd.String("profile", "", "Base AWS profile name")
-	assumeSession := assumeCmd.String("session-name", "", "Role session name (auto-derived if omitted)")
-	assumeFormat := assumeCmd.String("format", "env", "Output format: env, terraform, docker, json, yaml, kyaml")
 
 	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
 
@@ -125,22 +108,14 @@ func main() {
 	case "completion":
 		_ = completionCmd.Parse(os.Args[2:])
 		runCompletion(*completionShell, *completionInstall)
-	case "daemon":
-		_ = daemonCmd.Parse(os.Args[2:])
-		runDaemon(*daemonInterval)
-	case "service":
-		_ = serviceCmd.Parse(os.Args[2:])
-		runService(*serviceInstall, *serviceUninstall, *serviceOn, *serviceOff, *serviceStatus, *serviceInterval)
 	case "copy":
 		_ = copyCmd.Parse(os.Args[2:])
 		runCopy(*copyProfile, *copyFormat)
-	case "assume":
-		_ = assumeCmd.Parse(os.Args[2:])
-		runAssume(*assumeRole, *assumeProfile, *assumeSession, *assumeFormat)
 	case "doctor":
 		runDoctor()
 	case "prompt":
-		runPrompt()
+		promptInstall := len(os.Args) > 2 && os.Args[2] == "--install"
+		runPrompt(promptInstall)
 	case "init":
 		runInit()
 	case "rename":
@@ -203,13 +178,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %sexport%s      Export credentials for DevOps tools (Terraform, Docker, etc.)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sshell%s       Start an interactive session (also runs when no command is given)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %scompletion%s  Generate shell tab-completion script (zsh, bash, fish)\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sdaemon%s      Run auto-refresh loop in the foreground\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sservice%s     Install/uninstall auto-refresh as a background service\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "\n%sNEW COMMANDS:%s\n", Bold+Green, Reset)
 	fmt.Fprintf(os.Stderr, "  %scopy%s        Copy credentials to clipboard\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sassume%s      Assume an IAM role (role chaining via STS)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdoctor%s      Run a config and token health check\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sprompt%s      Output profile badge for shell PS1 integration\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sprompt%s      Output profile badge for shell PS1 (--install to auto-configure)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sinit%s        First-time setup wizard\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %spin%s         Pin a profile to the top of all lists\n", Cyan, Reset)
