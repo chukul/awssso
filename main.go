@@ -115,7 +115,7 @@ func main() {
 		_ = exportCmd.Parse(os.Args[2:])
 		runExport(*exportProfile, *exportFormat)
 	case "shell":
-		runREPL()
+		runShell()
 	case "completion":
 		_ = completionCmd.Parse(os.Args[2:])
 		runCompletion(*completionShell, *completionInstall)

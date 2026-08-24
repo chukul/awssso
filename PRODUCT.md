@@ -60,6 +60,11 @@ A feature is **done** when ALL of the following are true:
 | Pre-commit hook | Blocks direct commits to `main` | ✅ |
 | `whoami` auto-refresh | Silently refreshes token before displaying status | ✅ |
 
+### v3.0.0 (In Progress)
+| Feature | Acceptance Criteria | Status |
+|---------|--------------------|----|
+| `shell` — spawn system shell from REPL | Run `shell` in REPL to spawn bash/zsh/PowerShell with active profile's AWS credentials; terraform/aws-cli work without manual export | ✅ |
+
 ---
 
 ## Backlog (Prioritised)
