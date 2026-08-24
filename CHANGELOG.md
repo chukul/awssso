@@ -6,6 +6,16 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.2 — 2026-08-24
+
+### Features
+- `group` command accepts multiple profiles in one command: `awssso group eks --add prof1 prof2 prof3`
+- `group eks --add --profile <name>` syntax supported alongside the positional form
+- Argument order is flexible — `group eks --add <profile>` and `group <profile> eks --add` both work; the tool auto-detects which arg is the group tag and which is the profile name
+- Adding a profile to a non-existent group creates the group automatically — `group create` is now optional
+
+---
+
 ## v3.0.1 — 2026-08-24
 
 ### Fixes

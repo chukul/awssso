@@ -581,15 +581,26 @@ awssso rename old-profile-name new-profile-name
 Tag profiles into named groups and filter any list by group.
 
 ```bash
-awssso group                              # list all groups
-awssso group create eks                   # create a new group
-awssso group delete eks                   # remove entire group (asks confirmation)
-awssso group accor-acp-dev eks --add      # add a profile to a group
-awssso group accor-acp-dev eks --remove   # remove a profile from a group
-awssso group --add eks                    # add the active $AWS_PROFILE to "eks"
-awssso group --remove eks                 # remove the active $AWS_PROFILE from "eks"
-awssso group eks                          # list profiles in the "eks" group
-awssso profiles --group eks               # activate a profile from the group
+# List
+awssso group                                  # list all groups
+awssso group eks                              # list profiles in group "eks"
+
+# Create / delete
+awssso group create eks                       # create an empty group
+awssso group delete eks                       # remove entire group (asks confirmation)
+
+# Add profiles (all forms are equivalent)
+awssso group eks --add accor-acp-dev          # single profile
+awssso group eks --add --profile accor-acp-dev
+awssso group --add eks                        # uses active $AWS_PROFILE
+awssso group eks --add prof1 prof2 prof3      # multiple profiles at once
+
+# Remove profiles
+awssso group eks --remove accor-acp-dev
+awssso group eks --remove prof1 prof2 prof3
+
+# Filter profiles list by group
+awssso profiles --group eks
 ```
 
 ### `awssso pin` / `awssso unpin` — Favourites
