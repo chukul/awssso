@@ -6,6 +6,15 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.4 — 2026-08-24
+
+### Features
+- `Makefile` added — `make build`, `make install`, `make test`, `make patch/minor/major` for version bumps
+- `post-commit` git hook — automatically builds and installs `/usr/local/bin/awssso` after every commit
+- `pre-push` git hook — blocks push if `README.md` or `CHANGELOG.md` were not updated in the commits being pushed; README and changelog updates are now enforced, not just requested
+
+---
+
 ## v3.0.3 — 2026-08-24
 
 ### Features
