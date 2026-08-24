@@ -63,6 +63,21 @@ func main() {
 	serviceStatus := serviceCmd.Bool("status", false, "Check whether the background service is running")
 	serviceInterval := serviceCmd.Int("interval", 60, "Refresh interval in minutes (used with --install)")
 
+	copyCmd := flag.NewFlagSet("copy", flag.ExitOnError)
+	copyProfile := copyCmd.String("profile", "", "AWS profile name")
+	copyFormat := copyCmd.String("format", "env", "Export format: env, terraform, docker, json, yaml, kyaml")
+
+	assumeCmd := flag.NewFlagSet("assume", flag.ExitOnError)
+	assumeRole := assumeCmd.String("role", "", "IAM Role ARN to assume")
+	assumeProfile := assumeCmd.String("profile", "", "Base AWS profile name")
+	assumeSession := assumeCmd.String("session-name", "", "Role session name (auto-derived if omitted)")
+	assumeFormat := assumeCmd.String("format", "env", "Output format: env, terraform, docker, json, yaml, kyaml")
+
+	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
+
+	pinCmd := flag.NewFlagSet("pin", flag.ExitOnError)
+	unpinCmd := flag.NewFlagSet("unpin", flag.ExitOnError)
+
 	if len(os.Args) < 2 {
 		runREPL()
 		return
@@ -116,6 +131,40 @@ func main() {
 	case "service":
 		_ = serviceCmd.Parse(os.Args[2:])
 		runService(*serviceInstall, *serviceUninstall, *serviceOn, *serviceOff, *serviceStatus, *serviceInterval)
+	case "copy":
+		_ = copyCmd.Parse(os.Args[2:])
+		runCopy(*copyProfile, *copyFormat)
+	case "assume":
+		_ = assumeCmd.Parse(os.Args[2:])
+		runAssume(*assumeRole, *assumeProfile, *assumeSession, *assumeFormat)
+	case "doctor":
+		runDoctor()
+	case "prompt":
+		runPrompt()
+	case "init":
+		runInit()
+	case "rename":
+		_ = renameCmd.Parse(os.Args[2:])
+		args := renameCmd.Args()
+		if len(args) != 2 {
+			printError("Usage: awssso rename <old-name> <new-name>")
+			os.Exit(1)
+		}
+		runRename(args[0], args[1])
+	case "pin":
+		_ = pinCmd.Parse(os.Args[2:])
+		if len(pinCmd.Args()) == 0 {
+			printError("Usage: awssso pin <profile-name>")
+			os.Exit(1)
+		}
+		runPin(pinCmd.Args()[0])
+	case "unpin":
+		_ = unpinCmd.Parse(os.Args[2:])
+		if len(unpinCmd.Args()) == 0 {
+			printError("Usage: awssso unpin <profile-name>")
+			os.Exit(1)
+		}
+		runUnpin(unpinCmd.Args()[0])
 	case "__list-profiles":
 		runListProfiles()
 	case "__list-sessions":
@@ -156,6 +205,15 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %scompletion%s  Generate shell tab-completion script (zsh, bash, fish)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdaemon%s      Run auto-refresh loop in the foreground\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sservice%s     Install/uninstall auto-refresh as a background service\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "\n%sNEW COMMANDS:%s\n", Bold+Green, Reset)
+	fmt.Fprintf(os.Stderr, "  %scopy%s        Copy credentials to clipboard\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sassume%s      Assume an IAM role (role chaining via STS)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sdoctor%s      Run a config and token health check\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sprompt%s      Output profile badge for shell PS1 integration\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sinit%s        First-time setup wizard\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %spin%s         Pin a profile to the top of all lists\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sunpin%s       Remove a profile pin\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "\n  %shelp%s        Show this help message\n\n", Cyan, Reset)
 
 	fmt.Fprintf(os.Stderr, "%sOPTIONS:%s\n", Bold, Reset)

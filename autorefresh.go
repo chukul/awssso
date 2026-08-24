@@ -125,6 +125,7 @@ func silentRefreshAll(ctx context.Context) {
 	}
 
 	refreshed, skipped, needsLogin := 0, 0, 0
+	var needLoginNames []string
 
 	for _, s := range sessions {
 		label := shortName(s.name)
@@ -132,6 +133,7 @@ func silentRefreshAll(ctx context.Context) {
 		if s.token == nil {
 			printWarning(fmt.Sprintf("%-30s  No cached token — run: awssso login --session %s", label, s.name))
 			needsLogin++
+			needLoginNames = append(needLoginNames, label)
 			continue
 		}
 
@@ -145,6 +147,7 @@ func silentRefreshAll(ctx context.Context) {
 		if s.token.RefreshToken == "" {
 			printWarning(fmt.Sprintf("%-30s  Expired, no refresh token — run: awssso login --session %s", label, s.name))
 			needsLogin++
+			needLoginNames = append(needLoginNames, label)
 			continue
 		}
 
@@ -154,6 +157,7 @@ func silentRefreshAll(ctx context.Context) {
 		if err != nil {
 			spinner.Stop(false, fmt.Sprintf("%-30s  Refresh failed: %v", label, err))
 			needsLogin++
+			needLoginNames = append(needLoginNames, label)
 		} else {
 			spinner.Stop(true, fmt.Sprintf("%-30s  Refreshed", label))
 			refreshed++
@@ -162,6 +166,9 @@ func silentRefreshAll(ctx context.Context) {
 
 	fmt.Println()
 	printInfo(fmt.Sprintf("Done — %d refreshed, %d valid, %d need manual login", refreshed, skipped, needsLogin))
+
+	// Send a desktop notification for any sessions that couldn't be refreshed automatically
+	notifyExpiredSessions(needLoginNames)
 }
 
 // ── Service install / uninstall ───────────────────────────────────────────────
@@ -473,7 +480,7 @@ func cronLine(intervalMinutes int) (string, error) {
 	}
 	home, _ := homeDir()
 	logPath := filepath.Join(home, ".local", "share", "awssso", "refresh.log")
-	return fmt.Sprintf("*/%d * * * * %s refresh >> %s 2>&1", intervalMinutes, binaryPath, logPath), nil
+	return fmt.Sprintf(`*/%d * * * * "%s" refresh >> "%s" 2>&1`, intervalMinutes, binaryPath, logPath), nil
 }
 
 func installCron(intervalMinutes int) {

@@ -18,6 +18,169 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sso/types"
 )
 
+// tryAutoConfigureProfile attempts to configure a profile's account and role
+// automatically by:
+//  1. Finding an existing valid SSO token in any configured session.
+//  2. Searching for an AWS account whose name matches the profile name.
+//  3. If found and only one role is available, saving silently.
+//     If multiple roles are available, showing only the role picker.
+//
+// Returns true if the profile was successfully configured, false if the caller
+// should fall back to the full interactive switch.
+func tryAutoConfigureProfile(ctx context.Context, profileName string, config *AWSConfig) bool {
+	// Find any session with a valid token
+	var validToken string
+	var validRegion string
+	var validSession string
+
+	for sessName := range config.Sessions {
+		mock := &AWSProfile{SSOSession: sessName}
+		t, region, err := resolveValidToken(ctx, mock, config)
+		if err == nil {
+			validToken = t.AccessToken
+			validRegion = region
+			validSession = sessName
+			break
+		}
+	}
+	if validToken == "" {
+		return false // no valid token — need full login
+	}
+
+	// Silently fetch all accounts
+	spinner := NewSpinner("Looking up account for profile")
+	spinner.Start()
+	accounts, err := fetchAccounts(ctx, validRegion, validToken)
+	if err != nil {
+		spinner.Stop(false, "Could not fetch accounts")
+		return false
+	}
+	spinner.Stop(true, fmt.Sprintf("Fetched %d accounts", len(accounts)))
+
+	// Try to find an account whose name matches the profile name
+	matched := findMatchingAccount(accounts, profileName)
+	if matched == nil {
+		printInfo(fmt.Sprintf("No account found matching %q — switching to account search.", profileName))
+		fmt.Println()
+		return false
+	}
+
+	printSuccess(fmt.Sprintf("Matched account: %s%s%s (%s)", Bold, *matched.AccountName, Reset, *matched.AccountId))
+
+	// Fetch roles for the matched account
+	roleSpinner := NewSpinner("Fetching roles")
+	roleSpinner.Start()
+	roles, err := fetchAccountRoles(ctx, validRegion, *matched.AccountId, validToken)
+	if err != nil || len(roles) == 0 {
+		roleSpinner.Stop(false, "Could not fetch roles")
+		return false
+	}
+	roleSpinner.Stop(true, fmt.Sprintf("%d role(s) available", len(roles)))
+
+	var roleName string
+	if len(roles) == 1 {
+		roleName = *roles[0].RoleName
+		printInfo(fmt.Sprintf("Auto-selected role: %s%s%s", Bold, roleName, Reset))
+	} else {
+		// Show just the role list — no account search needed
+		fmt.Println()
+		printHeader("SELECT ROLE")
+		for i, r := range roles {
+			fmt.Printf("  %s[%d]%s %s\n", Cyan, i+1, Reset, Bold+*r.RoleName+Reset)
+		}
+		fmt.Println()
+		scanner := bufio.NewScanner(os.Stdin)
+		for {
+			printPrompt(fmt.Sprintf("Select a role %s(1-%d)%s or %sq%s to quit: ", Dim, len(roles), Reset, Bold, Reset))
+			if !scanner.Scan() {
+				return false
+			}
+			text := strings.TrimSpace(scanner.Text())
+			if text == "q" || text == "quit" {
+				return false
+			}
+			val, err := strconv.Atoi(text)
+			if err == nil && val >= 1 && val <= len(roles) {
+				roleName = *roles[val-1].RoleName
+				break
+			}
+			printError(fmt.Sprintf("Enter a number between 1 and %d", len(roles)))
+		}
+	}
+
+	// Determine the region from the session
+	sess := config.Sessions[validSession]
+	region := sess.SSORegion
+
+	// Save the profile
+	newProfile := &AWSProfile{
+		Name:         profileName,
+		SSOSession:   validSession,
+		SSOAccountID: *matched.AccountId,
+		SSORoleName:  roleName,
+		Region:       region,
+	}
+	if err := writeAWSProfile(profileName, newProfile); err != nil {
+		printError(fmt.Sprintf("Failed to save profile: %v", err))
+		return false
+	}
+	printSuccess(fmt.Sprintf("Profile %q configured.", profileName))
+	fmt.Println()
+	return true
+}
+
+// findMatchingAccount searches for an account whose name closely matches the
+// profile name. Tries exact match first, then prefix, then substring.
+func findMatchingAccount(accounts []types.AccountInfo, profileName string) *types.AccountInfo {
+	// Strip trailing role suffix (e.g. "_AWSAdministratorAccess") if present
+	accountPart := profileName
+	if idx := strings.LastIndex(profileName, "_"); idx > 0 {
+		candidate := profileName[:idx]
+		// Only strip if the part after _ looks like a role (has uppercase or is long)
+		if len(profileName[idx+1:]) > 3 {
+			accountPart = candidate
+		}
+	}
+	lower := strings.ToLower(accountPart)
+
+	// 1. Exact match
+	for i, a := range accounts {
+		if a.AccountName != nil && strings.EqualFold(*a.AccountName, accountPart) {
+			return &accounts[i]
+		}
+	}
+	// 2. Account name contains the profile part
+	for i, a := range accounts {
+		if a.AccountName != nil && strings.Contains(strings.ToLower(*a.AccountName), lower) {
+			return &accounts[i]
+		}
+	}
+	return nil
+}
+
+// orgDefaults returns the SSO Start URL and region from the first existing session
+// in config, giving the user a sensible default when configuring a new profile.
+func orgDefaults(config *AWSConfig) (url, region string) {
+	for _, sess := range config.Sessions {
+		if sess.SSOStartURL != "" {
+			return sess.SSOStartURL, sess.SSORegion
+		}
+	}
+	return "", ""
+}
+
+// isUnauthorized returns true when an AWS SDK error indicates a 401 / invalid token.
+func isUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "401") ||
+		strings.Contains(msg, "UnauthorizedException") ||
+		strings.Contains(msg, "token not found") ||
+		strings.Contains(msg, "token is invalid")
+}
+
 // resolveValidToken loads a cached SSO token for the given profile, refreshing it
 // automatically if expired. Returns the valid token and the resolved SSO region.
 // This eliminates the repeated load→read→check→refresh boilerplate across commands.
@@ -265,25 +428,8 @@ func runCredential(profileName string) {
 		os.Exit(1)
 	}
 
-	profile, err := loadProfile(config, profileName)
+	creds, profile, err := resolveCredentials(ctx, profileName, config)
 	if err != nil {
-		os.Exit(1)
-	}
-
-	token, ssoRegion, err := resolveValidToken(ctx, profile, config)
-	if err != nil {
-		printError(err.Error())
-		os.Exit(1)
-	}
-
-	creds, err := fetchRoleCredentials(ctx, ssoRegion, profile.SSOAccountID, profile.SSORoleName, token.AccessToken)
-	if err != nil {
-		var unauthErr *types.UnauthorizedException
-		if errors.As(err, &unauthErr) || strings.Contains(err.Error(), "ExpiredToken") {
-			printError(fmt.Sprintf("SSO Session is invalid or expired. Run: awssso login --profile %s", profileName))
-		} else {
-			printError(fmt.Sprintf("Failed to fetch role credentials: %v", err))
-		}
 		os.Exit(1)
 	}
 
@@ -295,7 +441,126 @@ func runCredential(profileName string) {
 	}
 }
 
-func runSwitch(profileName string, sessionName string, private bool) {
+// resolveCredentials gets temporary AWS credentials for a profile, automatically
+// recovering from three common failures:
+//
+//  1. Missing account/role → runs switch to let the user configure it, then retries.
+//  2. Expired or missing SSO token → re-authenticates automatically, then retries.
+//  3. Account/role not found in AWS SSO → shows a clear error and offers to
+//     reconfigure the profile with a different account/role.
+func resolveCredentials(ctx context.Context, profileName string, config *AWSConfig) (*CredentialResponse, *AWSProfile, error) {
+	// ── Step 1: load profile — auto-configure if account/role is missing ──────
+	// Check directly (not via loadProfile) to avoid printing duplicate error messages
+	// when we're about to auto-recover anyway.
+	rawProfile, exists := config.Profiles[profileName]
+	if !exists {
+		printError(fmt.Sprintf("Profile %q not found in ~/.aws/config", profileName))
+		suggestions := suggestProfiles(profileName, config, 3)
+		if len(suggestions) > 0 {
+			printInfo("Did you mean one of these?")
+			for _, s := range suggestions {
+				fmt.Fprintf(os.Stderr, "  • %s\n", s)
+			}
+		}
+		return nil, nil, fmt.Errorf("profile not found")
+	}
+
+	if rawProfile.SSOAccountID == "" || rawProfile.SSORoleName == "" {
+		printWarning(fmt.Sprintf("Profile %q has no account or role configured.", profileName))
+		fmt.Println()
+
+		// Try to auto-configure using an existing valid SSO token — avoids
+		// prompting for URL/region and searching through hundreds of accounts.
+		configured := tryAutoConfigureProfile(ctx, profileName, config)
+		if !configured {
+			// No valid token or no matching account found — fall back to the
+			// full interactive switch (URL/region prompts + account search).
+			printInfo("Starting full account/role setup...")
+			fmt.Println()
+			runSwitch(profileName, "", false, false)
+		}
+
+		// Reload config after configuration
+		config, _ = loadAWSConfig()
+		rawProfile = config.Profiles[profileName]
+		if rawProfile == nil || rawProfile.SSOAccountID == "" || rawProfile.SSORoleName == "" {
+			printError("Profile still incomplete after setup — please try again.")
+			return nil, nil, fmt.Errorf("incomplete profile")
+		}
+	}
+
+	profile, err := loadProfile(config, profileName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// ── Step 2: get a valid token — auto-login if expired or missing ──────────
+	token, ssoRegion, err := resolveValidToken(ctx, profile, config)
+	if err != nil {
+		printWarning("Session expired or not logged in — re-authenticating...")
+		fmt.Println()
+
+		startURL := resolveStartURL(profile, config)
+		resolvedRegion := resolveSSORegion(profile, config, nil)
+		cachePath, pathErr := getSSOTokenPath(profile, config)
+		if pathErr != nil {
+			printError(fmt.Sprintf("Cannot resolve token path: %v", pathErr))
+			return nil, nil, pathErr
+		}
+		sessionName := profile.SSOSession
+		emailHint := ""
+		if sessionName != "" {
+			if sess, found := config.Sessions[sessionName]; found {
+				emailHint = sess.SSOAccountEmail
+			}
+		}
+		usePrivate := needsPrivateBrowser(config, profile)
+
+		token, err = loginSSOWithHint(ctx, startURL, resolvedRegion, cachePath, sessionName, emailHint, usePrivate)
+		if err != nil {
+			printError(fmt.Sprintf("Re-authentication failed: %v", err))
+			return nil, nil, err
+		}
+		ssoRegion = resolvedRegion
+		printSuccess("Re-authenticated successfully.")
+		fmt.Println()
+	}
+
+	// ── Step 3: fetch credentials — handle account-not-found gracefully ───────
+	creds, err := fetchRoleCredentials(ctx, ssoRegion, profile.SSOAccountID, profile.SSORoleName, token.AccessToken)
+	if err != nil {
+		var unauthErr *types.UnauthorizedException
+		if errors.As(err, &unauthErr) {
+			printError(fmt.Sprintf(
+				"Account %s%s%s / role %s%s%s is no longer accessible in AWS SSO.",
+				Bold, profile.SSOAccountID, Reset,
+				Bold, profile.SSORoleName, Reset,
+			))
+			printWarning("The account or permission set may have been removed from your SSO access.")
+			fmt.Println()
+			printPrompt("Reconfigure this profile with a different account/role? (y/N): ")
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
+				fmt.Println()
+				runSwitch(profileName, "", false)
+				// After reconfiguring, the user can re-run the original command.
+				printInfo("Profile updated. Re-run your command to use the new configuration.")
+			}
+			return nil, nil, err
+		}
+		if strings.Contains(err.Error(), "ExpiredToken") {
+			printError("AWS credentials have expired mid-session. Re-run the command to re-authenticate.")
+			return nil, nil, err
+		}
+		printError(fmt.Sprintf("Failed to fetch credentials: %v", err))
+		return nil, nil, err
+	}
+
+	return creds, profile, nil
+}
+
+func runSwitch(profileName string, sessionName string, private bool, showNextSteps ...bool) {
+	nextSteps := len(showNextSteps) == 0 || showNextSteps[0] // default true
 	profileName = getProfileName(profileName)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -381,10 +646,33 @@ func runSwitch(profileName string, sessionName string, private bool) {
 	accounts, err := fetchAccounts(ctx, ssoRegion, token.AccessToken)
 	if err != nil {
 		accSpinner.Stop(false, "Failed to fetch accounts")
-		printError(fmt.Sprintf("Error fetching accounts: %v", err))
-		os.Exit(1)
+
+		// Token rejected by AWS (401 / UnauthorizedException) — force re-login
+		if isUnauthorized(err) {
+			printWarning("SSO token is invalid or has been revoked — re-authenticating...")
+			fmt.Println()
+			token, err = loginSSOWithHint(ctx, startURL, ssoRegion, cachePath, resolvedSessionName, emailHint, private)
+			if err != nil {
+				printError(fmt.Sprintf("Login failed: %v", err))
+				os.Exit(1)
+			}
+			// Retry with the fresh token
+			retrySpinner := NewSpinner("Fetching available AWS accounts")
+			retrySpinner.Start()
+			accounts, err = fetchAccounts(ctx, ssoRegion, token.AccessToken)
+			if err != nil {
+				retrySpinner.Stop(false, "Failed to fetch accounts")
+				printError(fmt.Sprintf("Error fetching accounts: %v", err))
+				os.Exit(1)
+			}
+			retrySpinner.Stop(true, "Fetched available AWS accounts")
+		} else {
+			printError(fmt.Sprintf("Error fetching accounts: %v", err))
+			os.Exit(1)
+		}
+	} else {
+		accSpinner.Stop(true, "Fetched available AWS accounts")
 	}
-	accSpinner.Stop(true, "Fetched available AWS accounts")
 
 	if len(accounts) == 0 {
 		printWarning("No AWS accounts found for this SSO session")
@@ -445,11 +733,8 @@ func runSwitch(profileName string, sessionName string, private bool) {
 	roleName := *selectedRole.RoleName
 
 	defaultProfileName := fmt.Sprintf("%s_%s", acctName, roleName)
-	printPrompt(fmt.Sprintf("Enter profile name %s(press Enter for %q)%s: ", Dim, defaultProfileName, Reset))
-	var customProfileName string
-	if scanner.Scan() {
-		customProfileName = strings.TrimSpace(scanner.Text())
-	}
+	customProfileName, _ := readlineInput(fmt.Sprintf("%s?%s Enter profile name %s(press Enter for %q)%s: ",
+		Yellow, Reset, Dim, defaultProfileName, Reset))
 	if customProfileName == "" {
 		customProfileName = defaultProfileName
 		printInfo(fmt.Sprintf("Using profile name: %s", customProfileName))
@@ -486,17 +771,86 @@ func runSwitch(profileName string, sessionName string, private bool) {
 	}
 
 	printSuccess(fmt.Sprintf("Profile %q saved to ~/.aws/config!", customProfileName))
-	printHeader("NEXT STEPS")
-	fmt.Printf("  %s1.%s Set the profile as active:\n", Cyan, Reset)
-	if runtime.GOOS == "windows" {
-		fmt.Printf("     %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, customProfileName, Reset)
-	} else {
-		fmt.Printf("     %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, customProfileName, Reset)
+	if nextSteps {
+		runNextSteps(scanner, ctx, customProfileName, newProfile, config)
 	}
-	fmt.Printf("  %s2.%s Use AWS CLI or other tools:\n", Cyan, Reset)
-	fmt.Printf("     %saws s3 ls%s\n\n", Dim, Reset)
-	fmt.Printf("  %s3.%s Open AWS Console:\n", Cyan, Reset)
-	fmt.Printf("     %sawssso console --profile %s%s\n", Dim, customProfileName, Reset)
+}
+
+// runNextSteps shows an interactive post-switch menu so the user can immediately
+// activate the profile, export credentials, or open the AWS Console.
+// Accepts a single option (1), multiple space- or comma-separated options (1 2),
+// a range (1-3), or "all".
+func runNextSteps(scanner *bufio.Scanner, ctx context.Context, profileName string, profile *AWSProfile, config *AWSConfig) {
+	var activateCmd string
+	if runtime.GOOS == "windows" {
+		activateCmd = fmt.Sprintf(`$env:AWS_PROFILE="%s"`, profileName)
+	} else {
+		activateCmd = fmt.Sprintf(`export AWS_PROFILE="%s"`, profileName)
+	}
+
+	printHeader("WHAT'S NEXT?")
+	fmt.Printf("  %s[1]%s Activate profile in your shell\n", Cyan, Reset)
+	fmt.Printf("     %s%s%s\n\n", Dim, activateCmd, Reset)
+	fmt.Printf("  %s[2]%s Export AWS credentials  %s(for Terraform, Docker, etc.)%s\n\n", Cyan, Reset, Dim, Reset)
+	fmt.Printf("  %s[3]%s Open AWS Console in browser\n\n", Cyan, Reset)
+
+	printPrompt(fmt.Sprintf("Select %s(1  1 2  1-3  all)%s or Enter to skip: ", Dim, Reset))
+	if !scanner.Scan() {
+		return
+	}
+
+	input := strings.TrimSpace(scanner.Text())
+	if input == "" {
+		return
+	}
+
+	var selected []int
+	if input == "all" {
+		selected = []int{1, 2, 3}
+	} else {
+		indices := parseSelection(input, 3)
+		if len(indices) == 0 {
+			printError(fmt.Sprintf("Invalid input %q. Use 1, 1 2, 1-3, or all.", input))
+			return
+		}
+		for _, idx := range indices {
+			selected = append(selected, idx+1) // parseSelection returns 0-based
+		}
+	}
+
+	for _, opt := range selected {
+		fmt.Println()
+		switch opt {
+		case 1:
+			printInfo("Copy and run in your terminal:")
+			fmt.Printf("\n  %s%s%s\n", Bold+Green, activateCmd, Reset)
+
+		case 2:
+			credCtx, credCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			spinner := NewSpinner("Fetching temporary credentials")
+			spinner.Start()
+			token, ssoRegion, err := resolveValidToken(credCtx, profile, config)
+			if err != nil {
+				credCancel()
+				spinner.Stop(false, "Could not retrieve token")
+				printError(fmt.Sprintf("Token expired — run: awssso login --profile %s", profileName))
+				break
+			}
+			creds, err := fetchRoleCredentials(credCtx, ssoRegion, profile.SSOAccountID, profile.SSORoleName, token.AccessToken)
+			credCancel()
+			if err != nil {
+				spinner.Stop(false, "Could not fetch credentials")
+				printError(fmt.Sprintf("Failed: %v", err))
+				break
+			}
+			spinner.Stop(true, "Credentials fetched")
+			fmt.Println()
+			fmt.Println(exportCredentials(creds, FormatEnv))
+
+		case 3:
+			runConsole(profileName)
+		}
+	}
 }
 
 // selectAccount handles the interactive account search and selection flow.
@@ -506,11 +860,11 @@ func selectAccount(scanner *bufio.Scanner, accounts []types.AccountInfo) types.A
 
 	var filteredAccounts []types.AccountInfo
 	for {
-		printPrompt(fmt.Sprintf("Search accounts %s(or press Enter to list all, or %sq%s to quit)%s: ", Dim, Bold, Reset, Reset))
-		if !scanner.Scan() {
+		searchTerm, ok := readlineInput(fmt.Sprintf("%s?%s Search accounts %s(Enter to list all, q to quit)%s: ",
+			Yellow, Reset, Dim, Reset))
+		if !ok {
 			os.Exit(1)
 		}
-		searchTerm := strings.TrimSpace(scanner.Text())
 		if searchTerm == "q" || searchTerm == "quit" || searchTerm == "exit" {
 			printInfo("Canceled by user")
 			os.Exit(0)
@@ -581,25 +935,38 @@ func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileNam
 	printHeader("CONFIGURE SSO PROFILE")
 	fmt.Printf("Profile %q needs SSO configuration. Let's set it up!\n\n", profileName)
 
+	// Use an existing session's URL/region as default so the user only needs to press Enter
+	defaultURL, defaultRegion := orgDefaults(config)
+
 	var startURL string
 	for {
-		printPrompt(fmt.Sprintf("SSO Start URL %s(e.g. https://my-sso.awsapps.com/start/)%s: ", Dim, Reset))
-		if !scanner.Scan() {
+		var prompt string
+		if defaultURL != "" {
+			prompt = fmt.Sprintf("%s?%s SSO Start URL %s(press Enter for %s)%s: ",
+				Yellow, Reset, Dim, defaultURL, Reset)
+		} else {
+			prompt = fmt.Sprintf("%s?%s SSO Start URL %s(e.g. https://my-sso.awsapps.com/start/)%s: ",
+				Yellow, Reset, Dim, Reset)
+		}
+		input, ok := readlineInput(prompt)
+		if !ok {
 			os.Exit(1)
 		}
-		startURL = strings.TrimSpace(scanner.Text())
+		if input == "" && defaultURL != "" {
+			startURL = defaultURL
+			printInfo(fmt.Sprintf("Using: %s", startURL))
+		} else {
+			startURL = input
+		}
 		if startURL == "" {
 			printError("SSO Start URL cannot be empty")
 			continue
 		}
 		if !strings.HasPrefix(startURL, "https://") {
 			printWarning("SSO Start URL should begin with https://")
-			printPrompt("Continue anyway? (y/N): ")
-			if scanner.Scan() {
-				confirm := strings.ToLower(strings.TrimSpace(scanner.Text()))
-				if confirm != "y" && confirm != "yes" {
-					continue
-				}
+			confirm, _ := readlineInput(fmt.Sprintf("%s?%s Continue anyway? (y/N): ", Yellow, Reset))
+			if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
+				continue
 			}
 		}
 		break
@@ -607,11 +974,24 @@ func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileNam
 
 	var ssoRegion string
 	for {
-		printPrompt(fmt.Sprintf("SSO Region %s(e.g. us-east-1, eu-west-1)%s: ", Dim, Reset))
-		if !scanner.Scan() {
+		var prompt string
+		if defaultRegion != "" {
+			prompt = fmt.Sprintf("%s?%s SSO Region %s(press Enter for %s)%s: ",
+				Yellow, Reset, Dim, defaultRegion, Reset)
+		} else {
+			prompt = fmt.Sprintf("%s?%s SSO Region %s(e.g. us-east-1, eu-west-1)%s: ",
+				Yellow, Reset, Dim, Reset)
+		}
+		input, ok := readlineInput(prompt)
+		if !ok {
 			os.Exit(1)
 		}
-		ssoRegion = strings.TrimSpace(scanner.Text())
+		if input == "" && defaultRegion != "" {
+			ssoRegion = defaultRegion
+			printInfo(fmt.Sprintf("Using: %s", ssoRegion))
+		} else {
+			ssoRegion = input
+		}
 		if ssoRegion == "" {
 			printError("SSO Region cannot be empty")
 			continue
@@ -619,12 +999,8 @@ func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileNam
 		break
 	}
 
-	printPrompt(fmt.Sprintf("AWS Default Region %s(press Enter for %s)%s: ", Dim, ssoRegion, Reset))
-	var awsRegion string
-	if !scanner.Scan() {
-		os.Exit(1)
-	}
-	awsRegion = strings.TrimSpace(scanner.Text())
+	awsRegion, _ := readlineInput(fmt.Sprintf("%s?%s AWS Default Region %s(press Enter for %s)%s: ",
+		Yellow, Reset, Dim, ssoRegion, Reset))
 	if awsRegion == "" {
 		awsRegion = ssoRegion
 		printInfo(fmt.Sprintf("Using region: %s", awsRegion))
@@ -1982,37 +2358,6 @@ func runQuick() {
 
 func runExport(profileName string, format string) {
 	profileName = getProfileName(profileName)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	config, err := loadAWSConfig()
-	if err != nil {
-		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
-		os.Exit(1)
-	}
-
-	profile, err := loadProfile(config, profileName)
-	if err != nil {
-		os.Exit(1)
-	}
-
-	if !showProductionWarning(profile) {
-		os.Exit(0)
-	}
-
-	token, ssoRegion, err := resolveValidToken(ctx, profile, config)
-	if err != nil {
-		printError(err.Error())
-		os.Exit(1)
-	}
-
-	creds, err := fetchRoleCredentials(ctx, ssoRegion, profile.SSOAccountID, profile.SSORoleName, token.AccessToken)
-	if err != nil {
-		printError(fmt.Sprintf("Failed to fetch credentials: %v", err))
-		os.Exit(1)
-	}
-
-	_ = recordRecentProfile(profile)
 
 	var exportFormat ExportFormat
 	switch strings.ToLower(format) {
@@ -2026,12 +2371,34 @@ func runExport(profileName string, format string) {
 		exportFormat = FormatJSON
 	case "yaml", "yml":
 		exportFormat = FormatYAML
+	case "kyaml", "kubernetes":
+		exportFormat = FormatKYAML
 	case "credential_process", "credential":
 		exportFormat = FormatCredentialProcess
 	default:
-		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, credential_process", format))
+		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, kyaml, credential_process", format))
 		os.Exit(1)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
+		os.Exit(1)
+	}
+
+	creds, profile, err := resolveCredentials(ctx, profileName, config)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	if !showProductionWarning(profile) {
+		os.Exit(0)
+	}
+
+	_ = recordRecentProfile(profile)
 
 	output := exportCredentials(creds, exportFormat)
 
