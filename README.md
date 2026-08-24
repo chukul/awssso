@@ -576,6 +576,22 @@ Renames a profile in `~/.aws/config`, updating all internal references.
 awssso rename old-profile-name new-profile-name
 ```
 
+### `awssso group` — Profile Groups
+
+Tag profiles into named groups and filter any list by group.
+
+```bash
+awssso group                              # list all groups
+awssso group create eks                   # create a new group
+awssso group delete eks                   # remove entire group (asks confirmation)
+awssso group accor-acp-dev eks --add      # add a profile to a group
+awssso group accor-acp-dev eks --remove   # remove a profile from a group
+awssso group --add eks                    # add the active $AWS_PROFILE to "eks"
+awssso group --remove eks                 # remove the active $AWS_PROFILE from "eks"
+awssso group eks                          # list profiles in the "eks" group
+awssso profiles --group eks               # activate a profile from the group
+```
+
 ### `awssso pin` / `awssso unpin` — Favourites
 
 Pins profiles to the top of every list and picker.

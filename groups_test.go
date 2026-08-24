@@ -28,9 +28,10 @@ func TestLoadGroups_Empty(t *testing.T) {
 func TestSaveAndLoadGroups(t *testing.T) {
 	setupGroupsTestDir(t)
 
+	// tag → []profiles structure
 	pg := &ProfileGroups{Groups: map[string][]string{
-		"profile-a": {"eks", "prod"},
-		"profile-b": {"eks"},
+		"eks":  {"profile-a", "profile-b"},
+		"prod": {"profile-a"},
 	}}
 	if err := saveGroups(pg); err != nil {
 		t.Fatalf("saveGroups: %v", err)
@@ -38,10 +39,10 @@ func TestSaveAndLoadGroups(t *testing.T) {
 
 	loaded := loadGroups()
 	if len(loaded.Groups) != 2 {
-		t.Errorf("expected 2 profiles in groups, got %d", len(loaded.Groups))
+		t.Errorf("expected 2 groups, got %d", len(loaded.Groups))
 	}
-	if !sliceContains(loaded.Groups["profile-a"], "eks") {
-		t.Error("profile-a should be in eks group")
+	if !sliceContains(loaded.Groups["eks"], "profile-a") {
+		t.Error("eks group should contain profile-a")
 	}
 }
 
@@ -49,9 +50,9 @@ func TestProfilesInGroup(t *testing.T) {
 	setupGroupsTestDir(t)
 
 	pg := &ProfileGroups{Groups: map[string][]string{
-		"profile-a": {"eks"},
-		"profile-b": {"eks", "staging"},
-		"profile-c": {"staging"},
+		"eks":     {"profile-a", "profile-b"},
+		"staging": {"profile-b", "profile-c"},
+		"empty":   {},
 	}}
 	_ = saveGroups(pg)
 
@@ -59,13 +60,13 @@ func TestProfilesInGroup(t *testing.T) {
 	if len(eks) != 2 {
 		t.Errorf("expected 2 profiles in eks, got %d", len(eks))
 	}
-	staging := profilesInGroup("staging")
-	if len(staging) != 2 {
-		t.Errorf("expected 2 profiles in staging, got %d", len(staging))
+	empty := profilesInGroup("empty")
+	if len(empty) != 0 {
+		t.Errorf("expected 0 profiles in empty group, got %d", len(empty))
 	}
 	none := profilesInGroup("nonexistent")
 	if len(none) != 0 {
-		t.Errorf("expected 0 profiles in nonexistent, got %d", len(none))
+		t.Errorf("expected 0 profiles in nonexistent group, got %d", len(none))
 	}
 }
 
@@ -73,14 +74,15 @@ func TestAllGroupTags(t *testing.T) {
 	setupGroupsTestDir(t)
 
 	pg := &ProfileGroups{Groups: map[string][]string{
-		"profile-a": {"eks", "prod"},
-		"profile-b": {"eks"},
+		"eks":   {"profile-a"},
+		"prod":  {"profile-a"},
+		"empty": {},
 	}}
 	_ = saveGroups(pg)
 
 	tags := allGroupTags()
-	if len(tags) != 2 {
-		t.Errorf("expected 2 unique tags, got %d: %v", len(tags), tags)
+	if len(tags) != 3 {
+		t.Errorf("expected 3 tags (including empty), got %d: %v", len(tags), tags)
 	}
 }
 
@@ -88,7 +90,8 @@ func TestTagsForProfile(t *testing.T) {
 	setupGroupsTestDir(t)
 
 	pg := &ProfileGroups{Groups: map[string][]string{
-		"profile-a": {"eks", "prod"},
+		"eks":  {"profile-a", "profile-b"},
+		"prod": {"profile-a"},
 	}}
 	_ = saveGroups(pg)
 

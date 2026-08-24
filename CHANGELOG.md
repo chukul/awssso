@@ -6,6 +6,16 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.1 — 2026-08-24
+
+### Fixes
+- `group create <tag>` now persists — data structure changed from `profile → []tags` to `tag → []profiles` so empty groups can be stored; previously `create` printed a success message but saved nothing
+- `group` listing now shows empty groups with `(empty)` instead of "No groups defined"
+- `group create` with no tag argument now shows a usage error instead of listing profiles in a group named "create"
+- `group --add <tag>` and `group <tag> --add` (one positional arg with `--add` or `--remove`) now use `$AWS_PROFILE` as the profile name — shorthand for adding the currently active profile to a group
+
+---
+
 ## v3.0.0 — 2026-08-24
 
 ### Features
