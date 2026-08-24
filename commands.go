@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -2910,4 +2911,71 @@ func parseSelection(input string, maxItems int) []int {
 	slices.Sort(indices)
 
 	return indices
+}
+
+// runShell spawns a system shell with the active profile's AWS credentials in the environment.
+// This allows users to run terraform, aws-cli, and other tools within the REPL without
+// manually exporting credentials.
+func runShell() {
+	profile := os.Getenv("AWS_PROFILE")
+	if profile == "" {
+		printWarning("No active profile. Use 'profiles' to activate one.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
+		return
+	}
+
+	creds, _, err := resolveCredentials(ctx, profile, config)
+	if err != nil {
+		printError(fmt.Sprintf("Failed to resolve credentials: %v", err))
+		return
+	}
+
+	// Build environment with AWS credentials
+	env := os.Environ()
+	env = append(env,
+		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", creds.AccessKeyId),
+		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", creds.SecretAccessKey),
+		fmt.Sprintf("AWS_SESSION_TOKEN=%s", creds.SessionToken),
+		fmt.Sprintf("AWS_PROFILE=%s", profile),
+	)
+
+	// Determine shell and spawn
+	var shell string
+	var args []string
+
+	if runtime.GOOS == "windows" {
+		shell = "powershell.exe"
+		args = []string{}
+	} else {
+		shell = os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		args = []string{}
+	}
+
+	fmt.Println()
+	printSuccess(fmt.Sprintf("Spawning %s with profile: %s", filepath.Base(shell), profile))
+	if runtime.GOOS != "windows" {
+		printInfo("Type 'exit' to return to awssso")
+	}
+	fmt.Println()
+
+	cmd := exec.Command(shell, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = env
+
+	_ = cmd.Run()
+
+	fmt.Println()
 }

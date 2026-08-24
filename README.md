@@ -80,7 +80,7 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `unpin` | List or remove a profile pin |
 | `group` | Tag profiles into named groups; `profiles --group <tag>` filters any list |
 | `dashboard` | Interactive TUI session management dashboard |
-| `shell` | Start an interactive session (also the default when no command is given) |
+| `shell` | Spawn a system shell (bash/zsh/PowerShell) with the active profile's AWS credentials in the environment; use from the REPL to run terraform, aws-cli, etc. |
 | `completion` | Generate shell tab-completion script |
 
 ### Options
@@ -494,6 +494,40 @@ awssso › exit
 All commands work exactly as normal, including interactive ones like `switch`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
 
 > **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names · `Ctrl+R` searches history · `Ctrl+C` clears the current line · `Ctrl+D` exits.
+
+### Spawning a System Shell from the REPL
+
+Once you've activated a profile in the REPL, use the `shell` command to spawn a system shell (bash/zsh/PowerShell) with that profile's AWS credentials in the environment. This lets you run terraform, aws-cli, and other tools directly without manual credential export.
+
+**macOS / Linux**
+
+```bash
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn bash/zsh with AWS credentials
+$ terraform plan               # Now terraform sees AWS_PROFILE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
+$ aws s3 ls                    # And aws-cli works too
+$ exit                         # Return to awssso REPL
+awssso › exit
+```
+
+**Windows (PowerShell)**
+
+```powershell
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn PowerShell with AWS credentials
+PS> terraform plan             # terraform sees the env vars
+PS> aws s3 ls                  # aws-cli works too
+PS> exit                       # Return to awssso REPL
+awssso › exit
+```
+
+The spawned shell inherits:
+- `AWS_PROFILE` — the active profile name
+- `AWS_ACCESS_KEY_ID` — temporary access key for this profile
+- `AWS_SECRET_ACCESS_KEY` — temporary secret key
+- `AWS_SESSION_TOKEN` — temporary session token (if using STS/assumed roles)
+
+All credentials expire when the profile's SSO token expires; you'll need to run `refresh` in the REPL and spawn a new shell.
 
 ---
 
