@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // runPrompt outputs a compact, coloured profile badge for embedding in a shell prompt.
@@ -27,7 +28,25 @@ func runPrompt(install bool) {
 	symbol := getEnvironmentSymbol(env)
 	color := getEnvironmentColor(env)
 
-	fmt.Printf("%s[%s %s]%s", color, symbol, profile, Reset)
+	// Append token expiry warning when < 15 min remain
+	suffix := ""
+	if config, err := loadAWSConfig(); err == nil {
+		if p, ok := config.Profiles[profile]; ok {
+			if tokenPath, pathErr := getSSOTokenPath(p, config); pathErr == nil {
+				if token, readErr := readSSOToken(tokenPath); readErr == nil {
+					if token.IsExpired() {
+						suffix = " ⚠"
+					} else if expiry, parseErr := time.Parse(time.RFC3339, token.ExpiresAt); parseErr == nil {
+						if remaining := time.Until(expiry); remaining < 15*time.Minute {
+							suffix = fmt.Sprintf(" ~%dm", int(remaining.Minutes())+1)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Printf("%s[%s %s%s]%s", color, symbol, profile, suffix, Reset)
 }
 
 // installPrompt detects the current shell and appends the prompt integration

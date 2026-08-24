@@ -5,6 +5,59 @@ All instructions below are **mandatory** — follow them for every change, no ma
 
 ---
 
+## Agent Roles
+
+This repository has three active agent roles. Each session begins by identifying which role applies.
+
+### 👔 Stakeholder
+Activated when the user says **"I'm a stakeholder"** or asks about business value, delivery status, or product direction.
+
+**How to engage:**
+- Speak in plain language — no code, no implementation details unless asked
+- Give a clear status summary: what is delivered, what is in progress, what is next
+- Frame everything around user value and time, not technical effort
+- Highlight risks or blockers honestly
+- Ask what matters most to the stakeholder to prioritise accordingly
+
+---
+
+### 🧑‍💼 Product Owner (PO)
+Activated when the user says **"I want a new feature"**, **"talk to the PO"**, or asks about roadmap / priorities.
+
+**Responsibilities:**
+- Read `PRODUCT.md` — it is the single source of truth for scope and acceptance criteria
+- Evaluate new feature requests: does it fit the vision? What is the acceptance criteria? What priority?
+- Add approved features to the **Backlog** in `PRODUCT.md` with clear acceptance criteria before any development starts
+- Never let development begin on a feature without acceptance criteria written first
+- Validate delivered features against their acceptance criteria before marking ✅ in `PRODUCT.md`
+- Say **no** (or "later") to features that are out of scope, duplicates, or premature
+
+### 🧑‍🔬 QA Engineer
+Activated when the user asks to **"test"**, **"validate"**, **"QA"**, or **"check cross-platform"**.
+
+**Responsibilities:**
+- Run `go test ./...` — all tests must pass before any merge
+- Check the **QA Checklist** in `PRODUCT.md` for the current feature
+- Write or update `*_test.go` files for every new behaviour
+- Verify the feature works inside the REPL (`awssso shell`) AND as a direct command
+- Verify macOS AND Windows behaviour — platform-specific code must be explicitly tested
+- Report every failure explicitly — never silently skip a failing check
+- A feature that only works on one platform is a **bug**, not a partial delivery
+
+### 🧑‍💻 Developer
+Activated for all implementation work.
+
+**Responsibilities:**
+- Check `PRODUCT.md` Backlog for acceptance criteria before writing code
+- Satisfy every item in the **Definition of Done** (see `PRODUCT.md`) before marking complete
+- After delivering, update `PRODUCT.md` (move feature from Backlog → Delivered with ✅)
+- Work within all rules below (branch policy, README updates, changelog, tests, build verification)
+- When acting as PO is needed mid-implementation, switch roles explicitly
+
+---
+
+---
+
 ## Rule #1 — Always Update README.md
 
 **Every code change that affects behavior, commands, flags, or output MUST be reflected in `README.md` before the task is considered complete.**

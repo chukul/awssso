@@ -8,19 +8,22 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 
 - **Multi-identity SSO** — multiple sessions sharing one start URL, each with a different email identity
 - **Private browser mode** (`--private`) — opens incognito/InPrivate window for clean auth flows
-- **Interactive account/role switching** — browse accounts, pick roles, auto-create profiles; auto-matches account by name
+- **Interactive account/role switching** — auto-matches account by name; auto-configures missing profiles without leaving the command
 - **`credential_process` compatible** — use as a credential helper in `~/.aws/config`
 - **AWS Console federation** — open the Management Console pre-authenticated
-- **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`)
-- **Copy to clipboard** — `awssso copy` copies credentials in any format directly to the clipboard
-- **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback otherwise
+- **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`); format auto-detected from working directory
+- **Copy to clipboard** — `awssso copy` copies credentials; auto-detects Terraform/Docker context
+- **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback; `whoami` refreshes silently
+- **Profile groups** — tag profiles (`awssso group`), filter lists by tag (`profiles --group eks`), create and delete groups
+- **Favourites** — `awssso pin` floats profiles to top of every list; `pin` alone activates one directly
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
-- **Interactive shell** — `awssso` with no args drops into a REPL with readline history and tab completion
-- **Tab completion** — zsh, bash, fish, PowerShell; profiles and session names complete dynamically
-- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
-- **Profile management** — rename, pin/unpin favourites, health check (`doctor`), first-time wizard (`init`)
-- **Shell prompt integration** — `awssso prompt --install` patches your shell config automatically; badge updates live as you switch profiles
+- **Interactive shell** — `awssso` drops into a REPL with readline history, arrow keys, and live tab completion
+- **Tab completion** — zsh, bash, fish, PowerShell; all commands, flags, profile names, group tags complete dynamically
+- **Shell prompt badge** — `awssso prompt --install` patches your shell config; shows `[🔴 prod ~9m]` with expiry warning
+- **Environment detection** — colour-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
+- **Profile management** — rename, health check (`doctor`), first-time wizard (`init`), `[No SSO]` profiles auto-configure on selection
 - **Desktop notifications** — alerts when sessions need manual login (macOS, Windows, Linux)
+- **Product ownership** — `PRODUCT.md` defines the roadmap, acceptance criteria, and Definition of Done
 
 ---
 
@@ -62,19 +65,20 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
 | `console` | Open AWS Management Console in browser, pre-authenticated |
 | `whoami` | Display current profile, account, role, and SSO token status |
-| `profiles` | List all profiles and set one as active |
+| `profiles` | List all profiles and set one as active; auto-configures unconfigured profiles |
 | `delete` | Delete one or more profiles (interactive or by name) |
 | `sessions` | List all SSO sessions with identity info and token status |
 | `refresh` | Refresh sessions — interactive picker, by name, or multiple at once |
 | `quick` | Quick switch between recently used profiles |
-| `export` | Export credentials in multiple formats |
-| `copy` | Fetch credentials and copy to system clipboard |
+| `export` | Export credentials — shows full profile picker (including unconfigured profiles) when no `--profile` given |
+| `copy` | Copy credentials to clipboard — shows full profile picker when no `--profile` given |
 | `doctor` | Run a health check on config, tokens, and PATH |
 | `prompt` | Output a profile badge for shell PS1/PROMPT integration |
 | `init` | First-time setup wizard (URL → login → account/role → save) |
 | `rename` | Rename a profile in `~/.aws/config` |
-| `pin` | Pin a profile to the top of all lists |
-| `unpin` | Remove a profile pin |
+| `pin` | Pin a profile to the top of all lists; `pin` alone activates one directly |
+| `unpin` | List or remove a profile pin |
+| `group` | Tag profiles into named groups; `profiles --group <tag>` filters any list |
 | `dashboard` | Interactive TUI session management dashboard |
 | `shell` | Start an interactive session (also the default when no command is given) |
 | `completion` | Generate shell tab-completion script |
@@ -577,8 +581,10 @@ awssso rename old-profile-name new-profile-name
 Pins profiles to the top of every list and picker.
 
 ```bash
-awssso pin my-prod-profile      # 📌 appears at top of all lists
-awssso unpin my-prod-profile
+awssso pin                      # list all pinned profiles
+awssso pin <profile>            # 📌 pin a profile — appears at top of all lists
+awssso unpin                    # list pinned profiles (useful before removing one)
+awssso unpin <profile>          # remove a pin
 ```
 
 ### `awssso export --format kyaml` — Kubernetes Secret

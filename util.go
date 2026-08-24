@@ -6,7 +6,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sso/types"
@@ -152,17 +151,6 @@ func newStdinScanner() *bufio.Scanner {
 	return bufio.NewScanner(os.Stdin)
 }
 
-// isProcessRunning returns true if a process with the given PID is still alive.
-// On Unix it sends signal 0 (no-op that tests process existence).
-// On Windows FindProcess opens a handle; failure means the process is gone.
-func isProcessRunning(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = p.Signal(syscall.Signal(0))
-	return err == nil
-}
 
 // shortName extracts a short identifier from an SSO session name or URL.
 func shortName(s string) string {

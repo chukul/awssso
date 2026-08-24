@@ -6,6 +6,39 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.0 — 2026-08-24
+
+### Features
+- `awssso group` — tag profiles into named groups with `group create <tag>` / `group delete <tag>` / `group <profile> <tag> --add` / `group <profile> <tag> --remove`; `awssso profiles --group <tag>` filters any profile list to show only members of that group
+- Token expiry warning in the REPL prompt and `awssso prompt` output — shows `[🔴 prod ~9m]` when less than 15 minutes remain and `[🔴 prod ⚠]` when expired
+- `awssso copy` auto-detects export format from the working directory — defaults to `terraform` when `*.tf` files are present, `docker` when a `Dockerfile` is found, otherwise `env`
+- `awssso whoami` silently refreshes an expired OIDC token before displaying status
+- `awssso pin` with no arguments prompts to activate one of the pinned profiles directly
+- `awssso unpin` with no arguments lists pinned profiles for reference before removing
+- `[No SSO]` profiles are now selectable in `export`, `copy`, and `console` pickers — selecting one triggers automatic account/role configuration
+- Confirmation prompt before auto-reconfiguring a profile — asks `Configure it now? (Y/n)` instead of silently modifying `~/.aws/config`
+- `PRODUCT.md` added — vision, delivered feature registry, prioritised backlog, acceptance criteria, and QA checklist for macOS and Windows
+- Agent roles defined in `CLAUDE.md` — Stakeholder, Product Owner, QA Engineer, and Developer with explicit responsibilities
+
+### Fixes
+- All interactive prompts now use readline — arrow keys, history, and Ctrl+A/E work everywhere inside the REPL; prompts no longer silently exit when run as subprocesses inside the shell
+- Pre-commit hook blocks direct commits to `main` and prints a clear error with the correct branch command
+- `profiles` command showed nothing inside the REPL — `bufio.Scanner` was receiving an empty read from readline-managed stdin; fixed by switching to `readlineInput`
+
+---
+
+## v2.0.3 — 2026-08-24
+
+### Features
+- `awssso pin` / `awssso unpin` with no arguments list all currently pinned profiles, showing each one with its environment symbol and colour
+- `awssso export` and `awssso copy` with no `--profile` flag show an interactive profile picker — all profiles are listed including `[No SSO]` ones, so any profile can be targeted directly
+- `export` / `copy` / `console` picker now includes unconfigured `[No SSO]` profiles; selecting one auto-configures the account and role before proceeding
+
+### Fixes
+- Selecting a `[No SSO]` profile in `awssso profiles` no longer activates a broken `AWS_PROFILE` — it auto-detects the matching AWS account by name, prompts for a role, saves the configuration, and only then activates the profile so credentials are valid immediately
+
+---
+
 ## v2.0.2 — 2026-08-24
 
 ### Fixes

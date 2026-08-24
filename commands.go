@@ -89,14 +89,10 @@ func tryAutoConfigureProfile(ctx context.Context, profileName string, config *AW
 			fmt.Printf("  %s[%d]%s %s\n", Cyan, i+1, Reset, Bold+*r.RoleName+Reset)
 		}
 		fmt.Println()
-		scanner := bufio.NewScanner(os.Stdin)
 		for {
-			printPrompt(fmt.Sprintf("Select a role %s(1-%d)%s or %sq%s to quit: ", Dim, len(roles), Reset, Bold, Reset))
-			if !scanner.Scan() {
-				return false
-			}
-			text := strings.TrimSpace(scanner.Text())
-			if text == "q" || text == "quit" {
+			text, ok := readlineInput(fmt.Sprintf("%s?%s Select a role %s(1-%d)%s or %sq%s to quit: ",
+				Yellow, Reset, Dim, len(roles), Reset, Bold, Reset))
+			if !ok || text == "q" || text == "quit" {
 				return false
 			}
 			val, err := strconv.Atoi(text)
@@ -469,6 +465,14 @@ func resolveCredentials(ctx context.Context, profileName string, config *AWSConf
 		printWarning(fmt.Sprintf("Profile %q has no account or role configured.", profileName))
 		fmt.Println()
 
+		// Ask before making any permanent change to the profile
+		answer, _ := readlineInput(fmt.Sprintf("%s?%s Configure it now? (Y/n): ", Yellow, Reset))
+		if strings.ToLower(strings.TrimSpace(answer)) == "n" {
+			printInfo("Skipped. Run: awssso switch --profile " + profileName)
+			return nil, nil, fmt.Errorf("incomplete profile")
+		}
+		fmt.Println()
+
 		// Try to auto-configure using an existing valid SSO token — avoids
 		// prompting for URL/region and searching through hundreds of accounts.
 		configured := tryAutoConfigureProfile(ctx, profileName, config)
@@ -538,9 +542,8 @@ func resolveCredentials(ctx context.Context, profileName string, config *AWSConf
 			))
 			printWarning("The account or permission set may have been removed from your SSO access.")
 			fmt.Println()
-			printPrompt("Reconfigure this profile with a different account/role? (y/N): ")
-			scanner := bufio.NewScanner(os.Stdin)
-			if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
+			answer, _ := readlineInput(fmt.Sprintf("%s?%s Reconfigure this profile with a different account/role? (y/N): ", Yellow, Reset))
+			if strings.ToLower(answer) == "y" {
 				fmt.Println()
 				runSwitch(profileName, "", false)
 				// After reconfiguring, the user can re-run the original command.
@@ -712,12 +715,9 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 
 	var roleChoice int
 	for {
-		printPrompt(fmt.Sprintf("Select a role %s(1-%d)%s or %sq%s to quit: ", Dim, len(roles), Reset, Bold, Reset))
-		if !scanner.Scan() {
-			os.Exit(1)
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "q" || text == "quit" || text == "exit" {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select a role %s(1-%d)%s or %sq%s to quit: ",
+			Yellow, Reset, Dim, len(roles), Reset, Bold, Reset))
+		if !ok || text == "q" || text == "quit" || text == "exit" {
 			printInfo("Canceled by user")
 			os.Exit(0)
 		}
@@ -773,7 +773,7 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 	printSuccess(fmt.Sprintf("Profile %q saved to ~/.aws/config!", customProfileName))
 	writeActiveProfile(customProfileName)
 	if nextSteps {
-		runNextSteps(scanner, ctx, customProfileName, newProfile, config)
+		runNextSteps(ctx, customProfileName, newProfile, config)
 	}
 }
 
@@ -781,7 +781,7 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 // activate the profile, export credentials, or open the AWS Console.
 // Accepts a single option (1), multiple space- or comma-separated options (1 2),
 // a range (1-3), or "all".
-func runNextSteps(scanner *bufio.Scanner, ctx context.Context, profileName string, profile *AWSProfile, config *AWSConfig) {
+func runNextSteps(ctx context.Context, profileName string, profile *AWSProfile, config *AWSConfig) {
 	var activateCmd string
 	if runtime.GOOS == "windows" {
 		activateCmd = fmt.Sprintf(`$env:AWS_PROFILE="%s"`, profileName)
@@ -795,13 +795,9 @@ func runNextSteps(scanner *bufio.Scanner, ctx context.Context, profileName strin
 	fmt.Printf("  %s[2]%s Export AWS credentials  %s(for Terraform, Docker, etc.)%s\n\n", Cyan, Reset, Dim, Reset)
 	fmt.Printf("  %s[3]%s Open AWS Console in browser\n\n", Cyan, Reset)
 
-	printPrompt(fmt.Sprintf("Select %s(1  1 2  1-3  all)%s or Enter to skip: ", Dim, Reset))
-	if !scanner.Scan() {
-		return
-	}
-
-	input := strings.TrimSpace(scanner.Text())
-	if input == "" {
+	input, ok := readlineInput(fmt.Sprintf("%s?%s Select %s(1  1 2  1-3  all)%s or Enter to skip: ",
+		Yellow, Reset, Dim, Reset))
+	if !ok || input == "" {
 		return
 	}
 
@@ -898,11 +894,11 @@ func selectAccount(scanner *bufio.Scanner, accounts []types.AccountInfo) types.A
 	fmt.Println()
 
 	for {
-		printPrompt(fmt.Sprintf("Select an account %s(1-%d)%s or %sq%s to quit: ", Dim, len(filteredAccounts), Reset, Bold, Reset))
-		if !scanner.Scan() {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select an account %s(1-%d)%s or %sq%s to quit: ",
+			Yellow, Reset, Dim, len(filteredAccounts), Reset, Bold, Reset))
+		if !ok {
 			os.Exit(1)
 		}
-		text := strings.TrimSpace(scanner.Text())
 		if text == "q" || text == "quit" || text == "exit" {
 			printInfo("Canceled by user")
 			os.Exit(0)
@@ -1131,9 +1127,6 @@ func pickProfileForConsole(config *AWSConfig) string {
 
 	var allRows []profileRow
 	for name, p := range config.Profiles {
-		if p.SSOAccountID == "" || p.SSORoleName == "" {
-			continue
-		}
 		session := p.SSOSession
 		if session == "" && p.SSOStartURL != "" {
 			session = "(inline)"
@@ -1266,8 +1259,8 @@ func pickProfileForConsole(config *AWSConfig) string {
 	}
 
 	// Display picker
-	printHeader("OPEN AWS CONSOLE — SELECT PROFILE")
-	fmt.Printf("  %sExpired sessions will auto-login (private browser for multi-identity sessions).%s\n", Dim, Reset)
+	printHeader("SELECT PROFILE")
+	fmt.Printf("  %sExpired sessions auto-login. %s[No SSO]%s profiles auto-configure when selected.%s\n", Dim, Yellow, Dim, Reset)
 
 	globalIdx := 0
 	flatRows := []profileRow{}
@@ -1316,28 +1309,27 @@ func pickProfileForConsole(config *AWSConfig) string {
 				remainingStr = fmt.Sprintf(" %s%s%s", Dim, r.remaining, Reset)
 			}
 
-			fmt.Printf("  %s│%s   %s[%d]%s %s%-26s%s %s[%s%s%s]%s%s  %s%s / %s (%s)%s\n",
+			fmt.Printf("  %s│%s   %s[%d]%s %s%-26s%s %s[%s%s%s]%s%s\n",
 				Dim, Reset,
 				Cyan, globalIdx, Reset,
 				envSymbol,
 				Bold+r.name+Reset, "",
 				Dim, statusColor, r.status, Reset, Dim,
-				remainingStr,
-				Dim, r.id, r.role, r.region, Reset)
+				remainingStr)
+			if r.id != "" {
+				fmt.Printf("  %s│%s        %s%s / %s (%s)%s\n",
+					Dim, Reset, Dim, r.id, r.role, r.region, Reset)
+			}
 		}
 		fmt.Printf("  %s└─%s\n", Dim, Reset)
 	}
 
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		printPrompt(fmt.Sprintf("Select profile %s(1-%d)%s or %sq%s to quit: ", Dim, len(flatRows), Reset, Bold, Reset))
-		if !scanner.Scan() {
-			return ""
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" || text == "q" || text == "quit" || text == "exit" {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select profile %s(1-%d)%s or %sq%s to quit: ",
+			Yellow, Reset, Dim, len(flatRows), Reset, Bold, Reset))
+		if !ok || text == "" || text == "q" || text == "quit" || text == "exit" {
 			printInfo("Canceled")
 			return ""
 		}
@@ -1456,16 +1448,12 @@ func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, privat
 	}
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
 	var selected []string
 
 	for {
-		printPrompt(fmt.Sprintf("Select sessions %s(1-%d, 1 2 3, 1-3, or all)%s: ", Dim, len(rows), Reset))
-		if !scanner.Scan() {
-			return
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" || text == "q" || text == "quit" {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select sessions %s(1-%d, 1 2 3, 1-3, or all)%s: ",
+			Yellow, Reset, Dim, len(rows), Reset))
+		if !ok || text == "" || text == "q" || text == "quit" {
 			printInfo("Canceled")
 			return
 		}
@@ -1884,12 +1872,23 @@ func runWhoami(profileName string) {
 
 	cachePath, err := getSSOTokenPath(profile, config)
 	if err == nil {
-		token, err := readSSOToken(cachePath)
-		if err == nil {
+		token, tokenErr := readSSOToken(cachePath)
+		if tokenErr == nil {
 			fmt.Println()
 			if token.IsExpired() {
-				printWarning("SSO Token: EXPIRED")
-				printInfo("Run: awssso login")
+				// Auto-refresh silently if a refresh token is available
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				ssoRegion := resolveSSORegion(profile, config, token)
+				refreshed, refreshErr := refreshToken(ctx, ssoRegion, cachePath, token)
+				if refreshErr == nil {
+					token = refreshed
+					expiry, _ := time.Parse(time.RFC3339, token.ExpiresAt)
+					remaining := formatDuration(time.Until(expiry))
+					printSuccess(fmt.Sprintf("SSO Token: Refreshed (%s remaining)", remaining))
+				} else {
+					printWarning("SSO Token: EXPIRED — run: awssso login")
+				}
 			} else {
 				expiry, _ := time.Parse(time.RFC3339, token.ExpiresAt)
 				remaining := formatDuration(time.Until(expiry))
@@ -1910,6 +1909,105 @@ func runWhoami(profileName string) {
 		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n", Dim, profileName, Reset)
 	}
 	fmt.Println()
+}
+
+// runProfilesFiltered shows profiles filtered by group tag. With no group, shows all.
+func runProfilesFiltered(group string) {
+	if group == "" {
+		runProfiles()
+		return
+	}
+	members := profilesInGroup(group)
+	if len(members) == 0 {
+		printWarning(fmt.Sprintf("No profiles tagged %q.", group))
+		printInfo(fmt.Sprintf("Add a profile to this group: awssso group <profile> %s", group))
+		return
+	}
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+
+	printHeader(fmt.Sprintf("GROUP: %s (%d profiles)", group, len(members)))
+	for i, name := range members {
+		p, ok := config.Profiles[name]
+		if !ok {
+			continue
+		}
+		env := detectEnvironment(p)
+		symbol := getEnvironmentSymbol(env)
+		status, remaining := profileTokenStatus(p, config)
+		statusColor := tokenStatusColor(status)
+		remainingStr := ""
+		if remaining != "" {
+			remainingStr = fmt.Sprintf(" %s%s%s", Dim, remaining, Reset)
+		}
+		fmt.Printf("  %s[%d]%s %s %s%-28s%s %s[%s%s%s]%s%s\n",
+			Cyan, i+1, Reset, symbol,
+			Bold, name, Reset,
+			Dim, statusColor, status, Reset, Dim,
+			remainingStr)
+	}
+	fmt.Println()
+
+	text, ok := readlineInput(fmt.Sprintf("%s?%s Activate a profile %s(1-%d)%s or Enter to skip: ",
+		Yellow, Reset, Dim, len(members), Reset))
+	if !ok || text == "" {
+		return
+	}
+	val, err := strconv.Atoi(text)
+	if err != nil || val < 1 || val > len(members) {
+		printError(fmt.Sprintf("Enter a number between 1 and %d", len(members)))
+		return
+	}
+	selectedName := members[val-1]
+	profile := config.Profiles[selectedName]
+	if !showProductionWarning(profile) {
+		return
+	}
+	os.Setenv("AWS_PROFILE", selectedName)
+	writeActiveProfile(selectedName)
+	setProfileScript(selectedName)
+}
+
+// profileTokenStatus returns the token status string and remaining time for a profile.
+func profileTokenStatus(p *AWSProfile, config *AWSConfig) (status, remaining string) {
+	if p.SSOSession == "" && p.SSOStartURL == "" {
+		return "No SSO", ""
+	}
+	mock := &AWSProfile{}
+	if p.SSOSession != "" {
+		mock.SSOSession = p.SSOSession
+	} else {
+		mock.SSOStartURL = p.SSOStartURL
+	}
+	tokenPath, err := getSSOTokenPath(mock, config)
+	if err != nil {
+		return "No SSO", ""
+	}
+	token, err := readSSOToken(tokenPath)
+	if err != nil {
+		return "Not Logged In", ""
+	}
+	if token.IsExpired() {
+		exp, _ := time.Parse(time.RFC3339, token.ExpiresAt)
+		return "Expired", fmt.Sprintf("expired %s ago", formatDuration(time.Since(exp)))
+	}
+	exp, _ := time.Parse(time.RFC3339, token.ExpiresAt)
+	return "Active", fmt.Sprintf("%s remaining", formatDuration(time.Until(exp)))
+}
+
+func tokenStatusColor(status string) string {
+	switch status {
+	case "Active":
+		return Green
+	case "Expired":
+		return Yellow
+	default:
+		return Red
+	}
 }
 
 func runProfiles() {
@@ -2155,13 +2253,9 @@ func runProfiles() {
 		flatRows = append(flatRows, groupMap[key].rows...)
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	printPrompt(fmt.Sprintf("Select profile to activate %s(1-%d)%s, or press Enter to skip: ", Dim, len(flatRows), Reset))
-	if !scanner.Scan() {
-		return
-	}
-	text := strings.TrimSpace(scanner.Text())
-	if text == "" {
+	text, ok := readlineInput(fmt.Sprintf("%s?%s Select profile to activate %s(1-%d)%s or Enter to skip: ",
+		Yellow, Reset, Dim, len(flatRows), Reset))
+	if !ok || text == "" {
 		return
 	}
 
@@ -2178,8 +2272,28 @@ func runProfiles() {
 		return
 	}
 
-	// If the session is expired, auto-login before activating
 	selectedRow := flatRows[val-1]
+
+	// Profile has no SSO account/role — auto-configure before activating
+	if selectedRow.status == "No SSO" || profile.SSOAccountID == "" || profile.SSORoleName == "" {
+		printWarning(fmt.Sprintf("Profile %q has no account or role configured.", selectedName))
+		fmt.Println()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		configured := tryAutoConfigureProfile(ctx, selectedName, config)
+		if !configured {
+			runSwitch(selectedName, "", false, false)
+		}
+		// Reload after configuration
+		config, _ = loadAWSConfig()
+		profile = config.Profiles[selectedName]
+		if profile == nil || profile.SSOAccountID == "" || profile.SSORoleName == "" {
+			printError("Profile still incomplete — please try again.")
+			return
+		}
+	}
+
+	// If the session is expired, auto-login before activating
 	if selectedRow.status == "Expired" || selectedRow.status == "Not Logged In" {
 		printWarning("Session expired — initiating login...")
 
@@ -2313,15 +2427,11 @@ func runQuick() {
 
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
 	var choice int
 	for {
-		printPrompt(fmt.Sprintf("Select profile %s(1-%d)%s or %sq%s to quit: ", Dim, len(validProfiles), Reset, Bold, Reset))
-		if !scanner.Scan() {
-			os.Exit(1)
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "q" || text == "quit" || text == "exit" {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select profile %s(1-%d)%s or %sq%s to quit: ",
+			Yellow, Reset, Dim, len(validProfiles), Reset, Bold, Reset))
+		if !ok || text == "q" || text == "quit" || text == "exit" {
 			printInfo("Canceled")
 			os.Exit(0)
 		}
@@ -2359,8 +2469,6 @@ func runQuick() {
 }
 
 func runExport(profileName string, format string) {
-	profileName = getProfileName(profileName)
-
 	var exportFormat ExportFormat
 	switch strings.ToLower(format) {
 	case "env", "environment":
@@ -2389,6 +2497,15 @@ func runExport(profileName string, format string) {
 	if err != nil {
 		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
 		os.Exit(1)
+	}
+
+	// No --profile given → show interactive picker so the user can choose
+	// from all configured profiles rather than silently using $AWS_PROFILE.
+	if profileName == "" {
+		profileName = pickProfileForConsole(config)
+		if profileName == "" {
+			return
+		}
 	}
 
 	creds, profile, err := resolveCredentials(ctx, profileName, config)
@@ -2601,14 +2718,10 @@ func runDelete(profileNames []string) {
 	printWarning("This will permanently remove the selected profile(s) from ~/.aws/config")
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		printPrompt(fmt.Sprintf("Enter number(s) to delete %s(e.g. 1,3,5 or 1-3)%s, or %sq%s to cancel: ", Dim, Reset, Bold, Reset))
-		if !scanner.Scan() {
-			return
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" || text == "q" || text == "quit" || text == "exit" {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Enter number(s) to delete %s(e.g. 1,3,5 or 1-3)%s, or %sq%s to cancel: ",
+			Yellow, Reset, Dim, Reset, Bold, Reset))
+		if !ok || text == "" || text == "q" || text == "quit" || text == "exit" {
 			printInfo("Canceled")
 			return
 		}
@@ -2627,12 +2740,8 @@ func runDelete(profileNames []string) {
 			fmt.Printf("  %s•%s %s\n", Red, Reset, rows[idx].name)
 		}
 		fmt.Println()
-		printPrompt("Confirm deletion? (yes/no): ")
-		if !scanner.Scan() {
-			return
-		}
-		confirm := strings.ToLower(strings.TrimSpace(scanner.Text()))
-		if confirm != "yes" && confirm != "y" {
+		confirm, _ := readlineInput(fmt.Sprintf("%s?%s Confirm deletion? (yes/no): ", Yellow, Reset))
+		if strings.ToLower(confirm) != "yes" && strings.ToLower(confirm) != "y" {
 			printInfo("Canceled")
 			return
 		}
