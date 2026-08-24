@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/chzyer/readline"
 )
@@ -26,7 +27,7 @@ var replCommands = []string{
 	"login", "credential", "switch", "console", "dashboard",
 	"whoami", "quick", "profiles", "delete", "sessions",
 	"refresh", "export", "copy", "doctor", "prompt",
-	"init", "rename", "pin", "unpin", "shell",
+	"init", "rename", "pin", "unpin", "group", "shell",
 	"completion", "help", "exit", "quit",
 }
 
@@ -41,6 +42,8 @@ var replCommandFlags = map[string][]string{
 	"export":     {"--profile", "--format"},
 	"copy":       {"--profile", "--format"},
 	"prompt":     {"--install"},
+	"group":      {"--add", "--remove"},
+	"profiles":   {"--group"},
 	"completion": {"--shell", "--install"},
 }
 
@@ -132,8 +135,22 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 	// Positional-argument commands — complete bare profile names, not --flag pairs
 
 	case "rename":
-		// Both arguments are profile names; always complete from the full list
 		return filterComplete(loadProfileNames(), prefix)
+
+	case "group":
+		if len(tokens) == 1 || (len(tokens) == 2 && !strings.HasPrefix(prefix, "-")) {
+			// First arg: "create", "delete", or a profile name / tag name
+			groupSubcmds := append([]string{"create", "delete"}, append(loadProfileNames(), allGroupTags()...)...)
+			return filterComplete(groupSubcmds, prefix)
+		}
+		if len(tokens) == 2 && tokens[1] != "create" && tokens[1] != "delete" {
+			// Second arg after a profile name: suggest existing tags
+			return filterComplete(allGroupTags(), prefix)
+		}
+		if len(tokens) == 2 && (tokens[1] == "create" || tokens[1] == "delete") {
+			// Second arg after create/delete: suggest existing tags
+			return filterComplete(allGroupTags(), prefix)
+		}
 
 	case "pin":
 		// Only show profiles that are not yet pinned
@@ -275,16 +292,41 @@ func loadSessionNames() []string {
 }
 
 // replPrompt builds the readline prompt, embedding the active AWS_PROFILE with
-// its environment colour so the user always knows which account they are in.
+// its environment colour. When < 15 min remain on the token it shows a warning.
 func replPrompt() string {
 	profile := os.Getenv("AWS_PROFILE")
 	if profile == "" {
 		return "\033[1;36mawssso\033[0m › "
 	}
-	// Reuse cloudeng environment detection
 	mock := &AWSProfile{Name: profile}
 	color := getEnvironmentColor(detectEnvironment(mock))
-	return fmt.Sprintf("\033[1;36mawssso\033[0m [%s%s\033[0m] › ", color, profile)
+	badge := tokenBadge(profile, color)
+	return fmt.Sprintf("\033[1;36mawssso\033[0m [%s] › ", badge)
+}
+
+// tokenBadge returns the coloured profile badge, appending a time warning when
+// the SSO token has less than 15 minutes remaining.
+func tokenBadge(profile, color string) string {
+	suffix := ""
+	config, err := loadAWSConfig()
+	if err == nil {
+		if p, ok := config.Profiles[profile]; ok {
+			if tokenPath, pathErr := getSSOTokenPath(p, config); pathErr == nil {
+				if token, readErr := readSSOToken(tokenPath); readErr == nil {
+					if token.IsExpired() {
+						suffix = " \033[33m⚠\033[0m"
+					} else if expiry, parseErr := time.Parse(time.RFC3339, token.ExpiresAt); parseErr == nil {
+						remaining := time.Until(expiry)
+						if remaining < 15*time.Minute {
+							mins := int(remaining.Minutes()) + 1
+							suffix = fmt.Sprintf(" \033[33m~%dm\033[0m", mins)
+						}
+					}
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("%s%s\033[0m%s", color, profile, suffix)
 }
 
 // ── REPL entry point ──────────────────────────────────────────────────────────
@@ -296,14 +338,6 @@ func runREPL() {
 		os.Exit(1)
 	}
 
-	// Tag this REPL session with its PID so subprocesses write to a session-
-	// specific sync file — multiple concurrent REPL windows stay independent.
-	os.Setenv(activeProfileEnvKey, fmt.Sprintf("%d", os.Getpid()))
-
-	// Remove this session's sync file on exit and clean up stale files from
-	// previous sessions whose processes are no longer running.
-	defer cleanupActiveProfileFile()
-	cleanupStaleActiveProfiles()
 
 	home, _ := homeDir()
 	historyFile := filepath.Join(home, ".aws", "awssso_history")

@@ -32,7 +32,7 @@ func main() {
 
 	quickCmd := flag.NewFlagSet("quick", flag.ExitOnError)
 
-	profilesCmd := flag.NewFlagSet("profiles", flag.ExitOnError)
+	_ = flag.NewFlagSet("profiles", flag.ExitOnError) // replaced by profilesCmd2
 
 	deleteCmd := flag.NewFlagSet("delete", flag.ExitOnError)
 
@@ -61,6 +61,13 @@ func main() {
 	pinCmd := flag.NewFlagSet("pin", flag.ExitOnError)
 	unpinCmd := flag.NewFlagSet("unpin", flag.ExitOnError)
 
+	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
+	groupAdd := groupCmd.Bool("add", false, "Add profile to a group tag")
+	groupRemove := groupCmd.Bool("remove", false, "Remove profile from a group tag")
+
+	profilesCmd2 := flag.NewFlagSet("profiles", flag.ExitOnError)
+	profilesGroup := profilesCmd2.String("group", "", "Filter profiles by group tag")
+
 	if len(os.Args) < 2 {
 		runREPL()
 		return
@@ -88,9 +95,7 @@ func main() {
 	case "quick":
 		_ = quickCmd.Parse(os.Args[2:])
 		runQuick()
-	case "profiles":
-		_ = profilesCmd.Parse(os.Args[2:])
-		runProfiles()
+	// "profiles" is handled below with --group support
 	case "delete":
 		_ = deleteCmd.Parse(os.Args[2:])
 		runDelete(deleteCmd.Args())
@@ -129,17 +134,23 @@ func main() {
 	case "pin":
 		_ = pinCmd.Parse(os.Args[2:])
 		if len(pinCmd.Args()) == 0 {
-			printError("Usage: awssso pin <profile-name>")
-			os.Exit(1)
+			runPin("") // no arg → list pins
+		} else {
+			runPin(pinCmd.Args()[0])
 		}
-		runPin(pinCmd.Args()[0])
 	case "unpin":
 		_ = unpinCmd.Parse(os.Args[2:])
 		if len(unpinCmd.Args()) == 0 {
-			printError("Usage: awssso unpin <profile-name>")
-			os.Exit(1)
+			runUnpin("") // no arg → list pinned profiles
+		} else {
+			runUnpin(unpinCmd.Args()[0])
 		}
-		runUnpin(unpinCmd.Args()[0])
+	case "group":
+		_ = groupCmd.Parse(os.Args[2:])
+		runGroup(groupCmd.Args(), *groupAdd, *groupRemove)
+	case "profiles":
+		_ = profilesCmd2.Parse(os.Args[2:])
+		runProfilesFiltered(*profilesGroup)
 	case "__list-profiles":
 		runListProfiles()
 	case "__list-sessions":
@@ -186,6 +197,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %spin%s         Pin a profile to the top of all lists\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sunpin%s       Remove a profile pin\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %sgroup%s       Tag a profile into a group; filter profiles by group\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "\n  %shelp%s        Show this help message\n\n", Cyan, Reset)
 
 	fmt.Fprintf(os.Stderr, "%sOPTIONS:%s\n", Bold, Reset)

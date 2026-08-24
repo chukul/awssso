@@ -11,8 +11,34 @@ import (
 	"time"
 )
 
+// autoDetectFormat inspects the current working directory and returns the most
+// appropriate export format. Falls back to FormatEnv when nothing is detected.
+func autoDetectFormat() ExportFormat {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		return FormatEnv
+	}
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case name == "terraform.tfvars" || strings.HasSuffix(name, ".tf"):
+			return FormatTerraform
+		case name == "Dockerfile" || name == "docker-compose.yml" || name == "docker-compose.yaml":
+			return FormatDocker
+		}
+	}
+	return FormatEnv
+}
+
 func runCopy(profileName string, format string) {
-	profileName = getProfileName(profileName)
+	// Auto-detect format from working directory when not explicitly specified
+	if strings.ToLower(format) == "env" {
+		detected := autoDetectFormat()
+		if detected != FormatEnv {
+			format = string(detected)
+			printInfo(fmt.Sprintf("Auto-detected format: %s", format))
+		}
+	}
 
 	var exportFormat ExportFormat
 	switch strings.ToLower(format) {
@@ -42,6 +68,13 @@ func runCopy(profileName string, format string) {
 	if err != nil {
 		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
 		os.Exit(1)
+	}
+
+	if profileName == "" {
+		profileName = pickProfileForConsole(config)
+		if profileName == "" {
+			return
+		}
 	}
 
 	creds, profile, err := resolveCredentials(ctx, profileName, config)
