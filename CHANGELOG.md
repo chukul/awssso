@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.3 — 2026-08-24
+
+### Features
+- `awssso login --group <tag>` logs in to every unique SSO session used by profiles in the group — runs each login in sequence, opening the browser once per distinct session; supports `--private` for incognito mode
+
+---
+
 ## v3.0.2 — 2026-08-24
 
 ### Features

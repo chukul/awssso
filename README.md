@@ -60,7 +60,7 @@ These commands work on all platforms. Examples below show the platform-appropria
 
 | Command | Description |
 |---------|-------------|
-| `login` | Authenticate via AWS SSO and cache credentials |
+| `login` | Authenticate via AWS SSO; `--group <tag>` logs in to all sessions for a group |
 | `switch` | Interactively select an AWS account/role and create a profile |
 | `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
 | `console` | Open AWS Management Console in browser, pre-authenticated |
@@ -601,6 +601,10 @@ awssso group eks --remove prof1 prof2 prof3
 
 # Filter profiles list by group
 awssso profiles --group eks
+
+# Login to all sessions used by profiles in a group
+awssso login --group eks
+awssso login --group eks --private   # incognito window per session
 ```
 
 ### `awssso pin` / `awssso unpin` — Favourites
