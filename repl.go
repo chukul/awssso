@@ -296,6 +296,15 @@ func runREPL() {
 		os.Exit(1)
 	}
 
+	// Tag this REPL session with its PID so subprocesses write to a session-
+	// specific sync file — multiple concurrent REPL windows stay independent.
+	os.Setenv(activeProfileEnvKey, fmt.Sprintf("%d", os.Getpid()))
+
+	// Remove this session's sync file on exit and clean up stale files from
+	// previous sessions whose processes are no longer running.
+	defer cleanupActiveProfileFile()
+	cleanupStaleActiveProfiles()
+
 	home, _ := homeDir()
 	historyFile := filepath.Join(home, ".aws", "awssso_history")
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -134,12 +135,61 @@ type RecentProfiles struct {
 	Profiles []RecentProfile `json:"profiles"`
 }
 
+// activeProfileEnvKey is the env var the REPL sets so subprocesses know
+// which session-specific sync file to write to.
+const activeProfileEnvKey = "AWSSSO_SESSION_ID"
+
 func getActiveProfilePath() (string, error) {
 	home, err := homeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".aws", "sso", "active_profile"), nil
+	// Use a session-specific file keyed by the REPL's PID so multiple
+	// concurrent REPL windows don't overwrite each other's active profile.
+	sessionID := os.Getenv(activeProfileEnvKey)
+	if sessionID == "" {
+		sessionID = "shared"
+	}
+	return filepath.Join(home, ".aws", "sso", "active_profile_"+sessionID), nil
+}
+
+// cleanupActiveProfileFile removes this session's sync file. Call via defer in runREPL.
+func cleanupActiveProfileFile() {
+	path, err := getActiveProfilePath()
+	if err == nil {
+		os.Remove(path)
+	}
+}
+
+// cleanupStaleActiveProfiles scans ~/.aws/sso/ and removes sync files whose
+// owning REPL process is no longer running. Called once at REPL startup.
+func cleanupStaleActiveProfiles() {
+	home, err := homeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".aws", "sso")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "active_profile_") {
+			continue
+		}
+		pidStr := strings.TrimPrefix(name, "active_profile_")
+		if pidStr == "shared" {
+			continue
+		}
+		pid, convErr := strconv.Atoi(pidStr)
+		if convErr != nil {
+			continue
+		}
+		if !isProcessRunning(pid) {
+			os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 // writeActiveProfile persists the selected profile name so the REPL shell
