@@ -42,18 +42,21 @@ func initTerminal() {
 type Spinner struct {
 	message string
 	stop    chan struct{}
+	done    chan struct{}
 }
 
 func NewSpinner(msg string) *Spinner {
 	return &Spinner{
 		message: msg,
 		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 }
 
 func (s *Spinner) Start() {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	go func() {
+		defer close(s.done)
 		i := 0
 		for {
 			select {
@@ -71,7 +74,7 @@ func (s *Spinner) Start() {
 
 func (s *Spinner) Stop(success bool, completionMsg string) {
 	close(s.stop)
-	time.Sleep(40 * time.Millisecond)
+	<-s.done // wait for goroutine to clear the line before we print
 	if success {
 		fmt.Printf("\r%s✔%s %s\n", Green, Reset, completionMsg)
 	} else {

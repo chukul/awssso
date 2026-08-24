@@ -6,6 +6,38 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v2.0.0 — 2026-08-24
+
+### Features
+- `awssso init` — first-time setup wizard: prompts for SSO URL and region, opens a browser, then guides through account and role selection, saving everything to `~/.aws/config`
+- `awssso copy` — fetches credentials and copies them to the system clipboard in any export format (macOS: `pbcopy`; Windows: PowerShell `Set-Clipboard`; Linux: `xclip` / `xsel` / `wl-copy`)
+- `awssso assume` — assumes an IAM role via STS on top of the credentials from any existing profile; supports all export formats
+- `awssso doctor` — health check that validates `~/.aws/config`, checks token status per session, detects orphaned profiles, and verifies the binary is on PATH
+- `awssso prompt` — outputs a compact profile badge (`[🔴 prod]`) for embedding in shell PS1/PROMPT on macOS, Linux, and Windows PowerShell
+- `awssso rename <old> <new>` — renames a profile in `~/.aws/config`, updating `credential_process` references automatically
+- `awssso pin <name>` / `awssso unpin <name>` — pins profiles to the top of every list and picker; stored in `~/.aws/sso/pinned_profiles.json`
+- `--format kyaml` — new export format that outputs a Kubernetes `Secret` YAML for direct `kubectl apply` piping
+- REPL prompt now shows the active `$AWS_PROFILE` with its environment colour (`awssso [🔴 prod] ›`) and updates live as the profile changes
+- Desktop notifications — daemon sends OS-native alerts (macOS: `osascript`, Windows: PowerShell balloon, Linux: `notify-send`) when sessions expire and cannot be auto-refreshed
+
+### Fixes
+- **Spinner race condition** — `Stop()` now waits for the spinner goroutine to clear the line before printing the result; previously a 40 ms sleep was too short, causing garbled output like `tokenntials...`
+- **Duplicate credentials in WHAT'S NEXT** — `runSwitch` called from auto-recovery (`resolveCredentials`) now skips the WHAT'S NEXT menu; credentials were being shown twice when `export` triggered a switch
+- **Duplicate error messages** — `resolveCredentials` now checks profile completeness directly instead of through `loadProfile`, eliminating the duplicate "missing account/role" messages that appeared side by side
+- **Arrow keys in interactive prompts** — free-text prompts (`switch` profile name, account search, SSO URL/region) now use readline in raw mode so left/right arrows, backspace, and Ctrl+A/E work correctly; previously showed `^[[D^[[C` literal escape sequences
+- **Unknown command "1"/"2" in REPL** — WHAT'S NEXT numbered items (`1.`, `2.`, `3.`) changed to arrow bullets (`→`) to prevent users from typing them as commands; REPL also now validates commands before spawning a subprocess
+- **fetchAccounts 401 after reconfiguration** — when an existing SSO token is cached but rejected by AWS (e.g. after a forced sign-out), `runSwitch` now detects the 401 `UnauthorizedException`, invalidates the token, and re-authenticates automatically instead of exiting with an error
+- **Auto account matching** — `export` and `credential` on an unconfigured profile now search for an AWS account whose name matches the profile name, selecting it automatically and skipping the 587-account search in the common case
+- **SSO URL and region pre-fill** — profile configuration wizard now reads the URL and region from any existing session as defaults, so users can press Enter instead of re-typing the same values
+- **`resolveCredentials` auto-recovery** — expired token and missing account/role are now recovered automatically without requiring the user to run a separate command
+- **`rl.Clean()` cursor corruption** — removed the `rl.Clean()` call between readline commands; calling it after `Readline()` had already exited raw mode was writing ANSI sequences that corrupted the terminal's cursor reference point, breaking left/right arrow movement in the next prompt
+- **zsh completion missing `kyaml`** — `kyaml` was present in bash, fish, and PowerShell completion scripts but missing from the zsh `--format` list
+- **PowerShell completion install on macOS** — `awssso completion --shell powershell --install` now checks that `powershell` or `pwsh` is on PATH before attempting to auto-install; on macOS without PowerShell, a clear message is shown instead of a confusing warning
+- **Cron entry path quoting** — binary and log paths in the Linux cron entry are now quoted, preventing failures when either path contains spaces
+- **`schtasks /TR` quoting** — Windows Task Scheduler entry now correctly quotes the binary path when it contains spaces
+
+---
+
 ## v1.0.0 — 2026-08-19
 
 ### Features

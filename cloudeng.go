@@ -238,6 +238,7 @@ const (
 	FormatDocker            ExportFormat = "docker"
 	FormatJSON              ExportFormat = "json"
 	FormatYAML              ExportFormat = "yaml"
+	FormatKYAML             ExportFormat = "kyaml"
 	FormatCredentialProcess ExportFormat = "credential_process"
 )
 
@@ -288,6 +289,18 @@ aws_session_token = "%s"
 aws_secret_access_key: "%s"
 aws_session_token: "%s"
 expiration: "%s"`, creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken, creds.Expiration)
+
+	case FormatKYAML:
+		return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-credentials
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "%s"
+  AWS_SECRET_ACCESS_KEY: "%s"
+  AWS_SESSION_TOKEN: "%s"
+  # Expires: %s`, creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken, creds.Expiration)
 
 	default:
 		return ""

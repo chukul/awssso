@@ -79,7 +79,7 @@ _awssso() {
         export)
           _arguments \
             '--profile[AWS profile name]:profile:_awssso_profiles' \
-            '--format[Export format]:format:(env terraform docker json yaml credential_process)'
+            '--format[Export format]:format:(env terraform docker json yaml kyaml credential_process)'
           ;;
         daemon)
           _arguments \
@@ -127,7 +127,7 @@ const bashCompletion = `_awssso() {
       return 0
       ;;
     --format)
-      COMPREPLY=($(compgen -W "env terraform docker json yaml credential_process" -- "$cur"))
+      COMPREPLY=($(compgen -W "env terraform docker json yaml kyaml credential_process" -- "$cur"))
       return 0
       ;;
   esac
@@ -199,7 +199,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
             }
         }
         '--format' {
-            return @('env','terraform','docker','json','yaml','credential_process') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            return @('env','terraform','docker','json','yaml','kyaml','credential_process') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
             }
         }
@@ -270,7 +270,7 @@ complete -c awssso -l force -d "Refresh even valid tokens" \
 # --format
 complete -c awssso -l format -r -d "Export format" \
   -n "__fish_seen_subcommand_from export" \
-  -a "env\t'Shell env vars' terraform\t'Terraform vars' docker\t'Docker env file' json\t'Raw JSON' yaml\t'YAML' credential_process\t'credential_process line'"
+  -a "env\t'Shell env vars' terraform\t'Terraform vars' docker\t'Docker env file' json\t'Raw JSON' yaml\t'YAML' kyaml\t'Kubernetes Secret' credential_process\t'credential_process line'"
 `
 
 // ── Command handlers ──────────────────────────────────────────────────────────
@@ -409,8 +409,20 @@ func installCompletion(shell, script string) {
 // ensurePowerShellProfile adds a dot-source line to the PowerShell profile
 // so the completion script is loaded on every new session.
 func ensurePowerShellProfile(scriptPath string) {
+	// Verify PowerShell is available — it may not be on macOS/Linux without pwsh installed.
+	psExe := "powershell"
+	if _, err := exec.LookPath("powershell"); err != nil {
+		if _, err2 := exec.LookPath("pwsh"); err2 != nil {
+			printWarning("PowerShell not found on PATH.")
+			printInfo("Install PowerShell (https://aka.ms/pscore6) or add this line manually to your $PROFILE:")
+			fmt.Printf("  %s. \"%s\"%s\n", Dim, scriptPath, Reset)
+			return
+		}
+		psExe = "pwsh"
+	}
+
 	// Ask PowerShell for the actual profile path (handles PS 5 vs PS 7 differences)
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", "$PROFILE").Output()
+	out, err := exec.Command(psExe, "-NoProfile", "-Command", "$PROFILE").Output()
 	if err != nil {
 		printWarning("Could not detect PowerShell profile path.")
 		printInfo("Add this line to your PowerShell $PROFILE manually:")

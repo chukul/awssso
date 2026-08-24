@@ -8,15 +8,21 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 
 - **Multi-identity SSO** — multiple sessions sharing one start URL, each with a different email identity
 - **Private browser mode** (`--private`) — opens incognito/InPrivate window for clean auth flows
-- **Interactive account/role switching** — browse accounts, pick roles, auto-create profiles
+- **Interactive account/role switching** — browse accounts, pick roles, auto-create profiles; auto-matches account by name
 - **`credential_process` compatible** — use as a credential helper in `~/.aws/config`
 - **AWS Console federation** — open the Management Console pre-authenticated
-- **Credential export** — output credentials for Terraform, Docker, JSON, YAML, or shell env vars
-- **Smart token refresh** — OIDC `refresh_token` when available, device auth fallback otherwise
+- **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`)
+- **Copy to clipboard** — `awssso copy` copies credentials in any format directly to the clipboard
+- **Role chaining** — `awssso assume` uses STS AssumeRole on top of any existing profile
+- **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback otherwise
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
-- **Tab completion** — shell completion for commands, flags, and profile/session names (zsh, bash, fish, PowerShell)
-- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev) with production safety prompts
-- **Profile suggestions** — typo-tolerant profile name matching via Levenshtein distance
+- **Interactive shell** — `awssso` with no args drops into a REPL with readline history and tab completion
+- **Tab completion** — zsh, bash, fish, PowerShell; profiles and session names complete dynamically
+- **Auto-refresh service** — daemon and system service (launchd / Task Scheduler / cron) with on/off toggle
+- **Environment detection** — color-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
+- **Profile management** — rename, pin/unpin favourites, health check (`doctor`), first-time wizard (`init`)
+- **Shell prompt integration** — `awssso prompt` outputs a badge for PS1/PROMPT embedding
+- **Desktop notifications** — alerts when sessions need manual login (macOS, Windows, Linux)
 
 ---
 
@@ -64,6 +70,14 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `refresh` | Refresh sessions — interactive picker, by name, or multiple at once |
 | `quick` | Quick switch between recently used profiles |
 | `export` | Export credentials in multiple formats |
+| `copy` | Fetch credentials and copy to system clipboard |
+| `assume` | Assume an IAM role via STS on top of the current profile |
+| `doctor` | Run a health check on config, tokens, and PATH |
+| `prompt` | Output a profile badge for shell PS1/PROMPT integration |
+| `init` | First-time setup wizard (URL → login → account/role → save) |
+| `rename` | Rename a profile in `~/.aws/config` |
+| `pin` | Pin a profile to the top of all lists |
+| `unpin` | Remove a profile pin |
 | `dashboard` | Interactive TUI session management dashboard |
 | `shell` | Start an interactive session (also the default when no command is given) |
 | `completion` | Generate shell tab-completion script |
@@ -77,9 +91,11 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `--profile <name>` | Most commands | AWS profile name (defaults to `$AWS_PROFILE` or `default`) |
 | `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session (multi-identity) |
 | `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
-| `--format <fmt>` | `export` | Output format: `env`, `terraform`, `docker`, `json`, `yaml`, `credential_process` |
+| `--format <fmt>` | `export`, `copy`, `assume` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
 | `--force` | `refresh` | Refresh even valid tokens (proactive refresh) |
 | `--interval <min>` | `daemon`, `service` | Auto-refresh interval in minutes (default: `60`) |
+| `--role <arn>` | `assume` | IAM Role ARN to assume |
+| `--session-name <n>` | `assume` | Role session name (auto-derived if omitted) |
 
 ---
 
@@ -581,6 +597,105 @@ A full-screen TUI showing all SSO sessions with real-time status.
 
 ---
 
+## New Commands (v2.0.0)
+
+### `awssso init` — First-time setup
+
+Guided wizard for new users. Prompts for SSO URL and region, opens a browser to authenticate, then walks through account and role selection.
+
+```bash
+awssso init
+```
+
+### `awssso copy` — Credentials to clipboard
+
+Fetches credentials and copies them directly to the system clipboard — no manual piping needed.
+
+**macOS / Linux**
+```bash
+awssso copy --profile my-profile
+awssso copy --profile my-profile --format terraform
+```
+
+**Windows (PowerShell)**
+```powershell
+awssso copy --profile my-profile
+```
+
+### `awssso assume` — Role chaining
+
+Assumes an IAM role via STS on top of the credentials from any existing profile.
+
+```bash
+awssso assume --role arn:aws:iam::123456789012:role/MyRole
+awssso assume --role arn:aws:iam::123456789012:role/MyRole --profile base-profile --format env
+```
+
+### `awssso doctor` — Health check
+
+Validates config, checks token status per session, detects orphaned profiles, and verifies the binary is on PATH.
+
+```bash
+awssso doctor
+```
+
+### `awssso prompt` — Shell PS1 integration
+
+Outputs a compact profile badge for embedding in your shell prompt.
+
+**macOS / Linux** — add to `~/.zshrc` or `~/.bashrc`:
+```bash
+PROMPT='$(awssso prompt) '$PROMPT     # zsh
+PS1='$(awssso prompt) '$PS1           # bash
+```
+
+**Windows** — add to `$PROFILE`:
+```powershell
+function prompt { "$(awssso prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> " }
+```
+
+Output: `[🔴 prod]`, `[🟢 dev]`, etc. — nothing if `$AWS_PROFILE` is not set.
+
+### `awssso rename` — Rename a profile
+
+Renames a profile in `~/.aws/config`, updating all internal references.
+
+```bash
+awssso rename old-profile-name new-profile-name
+```
+
+### `awssso pin` / `awssso unpin` — Favourites
+
+Pins profiles to the top of every list and picker.
+
+```bash
+awssso pin my-prod-profile      # 📌 appears at top of all lists
+awssso unpin my-prod-profile
+```
+
+### `awssso export --format kyaml` — Kubernetes Secret
+
+Exports credentials as a Kubernetes Secret YAML, ready to pipe directly to `kubectl`.
+
+```bash
+awssso export --profile my-profile --format kyaml | kubectl apply -f -
+```
+
+Output:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-credentials
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "ASIA..."
+  AWS_SECRET_ACCESS_KEY: "..."
+  AWS_SESSION_TOKEN: "..."
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -589,9 +704,17 @@ A full-screen TUI showing all SSO sessions with real-time status.
 ├── awsconfig.go         # ~/.aws/config parsing, token cache, profile/session CRUD
 ├── sso.go               # AWS SSO OIDC login, token refresh, role credentials, console
 ├── cloudeng.go          # Environment detection, recent profiles, export formats
-├── completion.go        # Tab completion scripts and install logic (zsh, bash, fish)
+├── completion.go        # Tab completion scripts and install logic (zsh, bash, fish, PowerShell)
 ├── autorefresh.go       # Daemon loop and service install/uninstall (launchd, Task Scheduler, cron)
 ├── repl.go              # Interactive shell mode (no-arg entry point and `shell` command)
+├── clipboard.go         # awssso copy — credential clipboard support (pbcopy/clip/xclip)
+├── assume.go            # awssso assume — STS AssumeRole / role chaining
+├── doctor.go            # awssso doctor — config and token health check
+├── prompt.go            # awssso prompt — shell PS1 badge output
+├── init.go              # awssso init — first-time setup wizard
+├── rename.go            # awssso rename — profile rename
+├── pins.go              # awssso pin/unpin — profile favourites
+├── notify.go            # Desktop notifications for expired sessions
 ├── dashboard.go         # Interactive TUI dashboard (bubbletea)
 ├── util.go              # Utility functions (formatting, Levenshtein, filtering)
 ├── ui.go                # Terminal UI helpers       [Windows build tag]
@@ -639,7 +762,7 @@ go vet ./...
 
 | Package | Purpose |
 |---------|---------|
-| `github.com/aws/aws-sdk-go-v2` | AWS SDK (SSO, SSOOIDC, Signin) |
+| `github.com/aws/aws-sdk-go-v2` | AWS SDK (SSO, SSOOIDC, STS, Signin) |
 | `github.com/charmbracelet/bubbletea` | Interactive TUI framework |
 | `github.com/charmbracelet/lipgloss` | Terminal styling |
 | `github.com/chzyer/readline` | Line editing, history, and tab completion for the interactive shell |

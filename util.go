@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sso/types"
+	"github.com/chzyer/readline"
 )
 
 // formatDuration formats a duration into a human-readable string like "2h 30m" or "1d 5h 10m".
@@ -117,6 +120,35 @@ func suggestProfiles(target string, config *AWSConfig, maxSuggestions int) []str
 	}
 
 	return suggestions
+}
+
+// readlineInput displays a prompt and reads one line with full arrow-key and
+// editing support (left/right cursor, backspace, Ctrl+A/E). Falls back to a
+// plain bufio read if readline cannot enter raw mode (e.g. piped stdin).
+func readlineInput(prompt string) (string, bool) {
+	rl, err := readline.New(prompt)
+	if err != nil {
+		// Fallback for non-interactive stdin
+		fmt.Print(prompt)
+		reader := bufio.NewReader(os.Stdin)
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return "", false
+		}
+		return strings.TrimSpace(line), true
+	}
+	defer rl.Close()
+
+	line, err := rl.Readline()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(line), true
+}
+
+// newStdinScanner returns a bufio.Scanner reading from os.Stdin.
+func newStdinScanner() *bufio.Scanner {
+	return bufio.NewScanner(os.Stdin)
 }
 
 // shortName extracts a short identifier from an SSO session name or URL.
