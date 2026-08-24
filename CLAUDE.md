@@ -237,7 +237,23 @@ When adding new behavior:
 
 ## Rule #6 — Build Verification
 
-Always run `go build -o awssso .` (macOS/Linux) to confirm the code compiles before finishing. Fix any errors before completing the task.
+The `post-commit` git hook builds and installs the binary automatically after every commit.
+Run `make install` at any time to build manually. Fix any errors before completing the task.
+
+---
+
+## Automation Reference
+
+| What | How |
+|------|-----|
+| Build after commit | Automatic — `post-commit` hook runs `go build` and copies to `/usr/local/bin/awssso` |
+| Block push without docs | Automatic — `pre-push` hook checks that README.md and CHANGELOG.md were updated |
+| Version bump (patch) | `make patch` — increments patch, adds CHANGELOG placeholder, builds, installs |
+| Version bump (minor) | `make minor` |
+| Version bump (major) | `make major` — uses next Fibonacci number |
+| Manual build only | `make build` |
+| Manual install | `make install` |
+| Run tests | `make test` |
 
 ---
 
