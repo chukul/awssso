@@ -66,7 +66,7 @@ These commands work on all platforms. Examples below show the platform-appropria
 | `console` | Open AWS Management Console in browser, pre-authenticated |
 | `whoami` | Display current profile, account, role, and SSO token status |
 | `profiles` | List all profiles and set one as active; auto-configures unconfigured profiles |
-| `delete` | Delete one or more profiles (interactive or by name) |
+| `delete` | Delete profiles — `delete my-profile` or `delete --profile my-profile` |
 | `sessions` | List all SSO sessions with identity info and token status |
 | `refresh` | Refresh sessions — interactive picker, by name, or multiple at once |
 | `quick` | Quick switch between recently used profiles |

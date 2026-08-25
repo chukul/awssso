@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.5 — 2026-08-24
+
+### Fixes
+- `delete --profile <name>` now works — previously `delete` only accepted positional arguments and returned "flag provided but not defined: -profile"; `--profile` flag added alongside positional args so both `delete my-profile` and `delete --profile my-profile` are valid
+
+---
+
 ## v3.0.4 — 2026-08-24
 
 ### Features

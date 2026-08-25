@@ -36,6 +36,7 @@ func main() {
 	_ = flag.NewFlagSet("profiles", flag.ExitOnError) // replaced by profilesCmd2
 
 	deleteCmd := flag.NewFlagSet("delete", flag.ExitOnError)
+	deleteProfile := deleteCmd.String("profile", "", "Profile name to delete")
 
 	sessionsCmd := flag.NewFlagSet("sessions", flag.ExitOnError)
 
@@ -104,7 +105,11 @@ func main() {
 	// "profiles" is handled below with --group support
 	case "delete":
 		_ = deleteCmd.Parse(os.Args[2:])
-		runDelete(deleteCmd.Args())
+		args := deleteCmd.Args()
+		if *deleteProfile != "" {
+			args = append([]string{*deleteProfile}, args...)
+		}
+		runDelete(args)
 	case "sessions":
 		_ = sessionsCmd.Parse(os.Args[2:])
 		runSessions()
