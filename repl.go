@@ -106,7 +106,11 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 
 	switch cmd {
 	case "export":
-		if !typed["--profile"] {
+		if !typed["--profile"] && !typed["--format"] && !typed["--clipboard"] && prefix == "" {
+			// No flags typed yet — show the flags, not 22 profiles
+			return filterComplete(replCommandFlags["export"], "")
+		}
+		if !typed["--profile"] && (typed["--format"] || typed["--clipboard"] || prefix != "") {
 			return insertableCompletions(profileCandidates(), prefix)
 		}
 		if !typed["--format"] {
@@ -114,16 +118,25 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 		}
 
 	case "login", "create":
+		if !typed["--profile"] && !typed["--session"] && prefix == "" {
+			return filterComplete(replCommandFlags[cmd], "")
+		}
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}
 
 	case "console", "whoami", "credential", "delete":
+		if !typed["--profile"] && prefix == "" {
+			return filterComplete([]string{"--profile"}, "")
+		}
 		if !typed["--profile"] {
 			return insertableCompletions(profileCandidates(), prefix)
 		}
 
 	case "refresh":
+		if !typed["--profile"] && !typed["--session"] && prefix == "" {
+			return filterComplete(replCommandFlags["refresh"], "")
+		}
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}
@@ -423,15 +436,10 @@ func runBasicREPL(binaryPath string) {
 					buf = append(buf, []byte(suffix)...)
 					os.Stdout.Write([]byte(suffix))
 				} else if len(completions) > 1 {
-					// Multiple matches — restore terminal before printing
+					// Multiple matches — restore terminal before printing so \n includes \r
 					term.Restore(fd, oldState)
 					fmt.Println()
-					max := 12
-					for i, c := range completions {
-						if i >= max {
-							fmt.Printf("  %s... and %d more%s\n", Dim, len(completions)-max, Reset)
-							break
-						}
+					for _, c := range completions {
 						fmt.Printf("  %s%s%s\n", Dim, c, Reset)
 					}
 					fmt.Print(prompt + string(buf))
