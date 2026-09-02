@@ -6,55 +6,34 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
-## v4.0.4 — 2026-09-02
+## v4.0.0 — 2026-09-02
 
-### Fixes
-- REPL startup crash (`killed`) — `replPrompt()` was calling `loadAWSConfig()` on every prompt redraw, parsing all configured profiles from disk each time; at readline init time this blocked the terminal and the OS killed the process; config now cached on first call and invalidated after each command
-
----
-
-## v4.0.3 — 2026-09-02
-
-### Changes
-- `switch` command renamed to `create` — better reflects what it does (pick an account/role and create a profile entry)
-
----
-
-## v4.0.2 — 2026-09-02
-
-### Fixes (cross-platform audit)
-- `pins.go` — migration path used hardcoded `/` separator; fixed with `filepath.Join` (would have broken on Windows)
-- `init.go` — `isWindows()` used unreliable env-var heuristic; replaced with `runtime.GOOS == "windows"` (Git Bash on Windows has `SHELL` set, so the old check returned false)
-- `prompt.go` — install snippets written to shell configs still referenced `awssso prompt` (removed command); updated to `awssso completion --prompt`
-- `clipboard.go` — Dockerfile and terraform file detection was case-sensitive; now uses `strings.ToLower` so `dockerfile`, `DOCKERFILE`, etc. all match on Linux
-
----
-
-## v4.0.1 — 2026-09-02
-
-### Refactor (Pass 2)
-- `pin`/`unpin` now use the groups system internally — pins are stored as the `favourites` group tag in `profile_groups.json`; `pinned_profiles.json` is no longer created and existing data is auto-migrated on first run
-- Token status check (`profileTokenStatus`) is now used consistently in all three profile-list displays — eliminated three duplicated inline token-read blocks (~75 lines removed)
-- Dead code removed: `status := "No SSO"` assignment immediately overwritten in `pickProfileForConsole`
-- `awssso prompt` restored as a hidden backward-compat alias; users should migrate PS1 to `awssso completion --prompt`
-
----
-
-## v4.0.0 — 2026-08-24
-
-### Removed (Pass 1 simplification)
-- `dashboard` — removed; TUI duplicated what `profiles` and the REPL already provide
-- `quick` — removed; `profiles` + pins covers the same use case without a separate command
-- `sessions` — removed; session health info is available via `doctor` and `profiles`
-- `copy` — merged into `export --clipboard`; clipboard is now a flag, not a separate command
-- `prompt` — merged into `completion --prompt` (print badge) and `completion --prompt --install` (configure shell); groups naturally with other shell integration
-- `credential` — hidden from help and tab completion; still works for `credential_process` entries in `~/.aws/config`
+### Removed (command surface simplification)
+- `dashboard` — duplicated what `profiles` and the REPL already provide
+- `quick` — `profiles` + pins covers the same use case
+- `sessions` — session health info available via `doctor` and `profiles`
+- `copy` — merged into `export --clipboard`
+- `prompt` — merged into `completion --prompt` (print badge) and `completion --prompt --install` (configure shell)
+- `credential` — hidden from help and completion; still works for `credential_process` entries in `~/.aws/config`
 
 ### Changes
-- `export --clipboard` replaces `awssso copy` — same functionality, simpler surface
-- `completion --prompt` replaces `awssso prompt` — for PS1: use `$(awssso completion --prompt)`
+- `switch` renamed to `create` — more accurately describes the action
+- `export --clipboard` replaces `awssso copy`
+- `completion --prompt` replaces `awssso prompt`; use `$(awssso completion --prompt)` in PS1
 - `completion --prompt --install` replaces `awssso prompt --install`
 - Help text reorganised into Core / Management / Shell Integration sections
+- `version` / `-v` / `--version` flag added
+
+### Refactor (Pass 2)
+- `pin`/`unpin` now use the groups system internally — pins stored as `favourites` group tag; `pinned_profiles.json` auto-migrated and no longer created
+- Token status check (`profileTokenStatus`) used consistently in all profile-list displays — ~75 lines of duplicated inline token-read code removed
+- AWS config cached for REPL prompt redraws — `replPrompt()` was re-parsing all profiles on every keystroke; now loaded once and invalidated after each command
+
+### Fixes (cross-platform)
+- `pins.go` — hardcoded `/` path separator replaced with `filepath.Join` (Windows fix)
+- `init.go` — `isWindows()` now uses `runtime.GOOS` instead of env-var heuristic (was unreliable under Git Bash)
+- `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
+- `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
 
 ---
 

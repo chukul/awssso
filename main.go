@@ -162,7 +162,7 @@ func main() {
 
 // Version is set at build time via: go build -ldflags "-X main.Version=v4.0.0"
 // Update this whenever the CHANGELOG major version changes.
-var Version = "v4.0.0"
+var Version = "v4.0.0" // overridden at build time by make install via -ldflags
 
 func printVersion() {
 	fmt.Printf("awssso %s\n", Version)
