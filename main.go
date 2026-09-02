@@ -146,6 +146,9 @@ func main() {
 		runListProfiles()
 	case "__list-sessions":
 		runListSessions()
+	case "version", "-v", "--version":
+		printVersion()
+		os.Exit(0)
 	case "help", "-h", "--help":
 		printUsage()
 		os.Exit(0)
@@ -155,6 +158,14 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// Version is set at build time via: go build -ldflags "-X main.Version=v4.0.0"
+// Update this whenever the CHANGELOG major version changes.
+var Version = "v4.0.0"
+
+func printVersion() {
+	fmt.Printf("awssso %s\n", Version)
 }
 
 func printUsage() {

@@ -564,7 +564,7 @@ A full-screen TUI showing all SSO sessions with real-time status.
 
 ---
 
-## New Commands (v2.0.0)
+## New Commands (v4.0.0)
 
 ### `awssso init` — First-time setup
 

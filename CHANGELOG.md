@@ -6,7 +6,7 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
-## v3.0.5 — 2026-08-24
+## v4.0.0 — 2026-08-24
 
 ### Removed (Pass 1 simplification)
 - `dashboard` — removed; TUI duplicated what `profiles` and the REPL already provide

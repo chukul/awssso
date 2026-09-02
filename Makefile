@@ -1,13 +1,14 @@
 BINARY    := awssso
 INSTALL   := /usr/local/bin/$(BINARY)
 CHANGELOG := CHANGELOG.md
+LDFLAGS   := -ldflags "-X main.Version=$(shell grep -m1 '^## v' $(CHANGELOG) | awk '{print $$2}')"
 
 .PHONY: build install patch minor major check-version next-version
 
 # ── Build & install ───────────────────────────────────────────────────────────
 
 build:
-	@go build -o $(BINARY) .
+	@go build $(LDFLAGS) -o $(BINARY) .
 	@echo "✔ Built $(BINARY)"
 
 install: build
