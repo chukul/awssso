@@ -530,7 +530,7 @@ All credentials expire when the profile's SSO token expires; you'll need to run 
 
 ---
 
-## New Commands (v4.0.0)
+## Command Reference (v4.0.0)
 
 ### `awssso init` — First-time setup
 

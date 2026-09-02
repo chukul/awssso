@@ -6,16 +6,6 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
-## v4.0.1 — 2026-09-02
-
-### Fixes
-- **Windows REPL arrow keys** — `initTerminal` now enables `ENABLE_VIRTUAL_TERMINAL_INPUT` on stdin so arrow keys produce ESC sequences; previously they produced Windows extended codes (`0xE0` prefix) that the REPL key handler never matched, making all arrow navigation silently fail
-- **Fish completion** — subcommand entries corrected to match v4 command surface: removed stale `switch`, `dashboard`, `quick`, `sessions`, `credential`; added `create`, `group`, `rename`, `doctor`, `init`, `completion`; added missing `--clipboard`, `--shell`, `--install`, `--prompt`, `--group` flag completions
-- **PowerShell completion** — `export` was missing `--clipboard`; `completion` was missing `--prompt`
-- **Zsh completion** — two spurious blank entries removed from the command list
-
----
-
 ## v4.0.0 — 2026-09-02
 
 ### Removed
@@ -42,6 +32,10 @@ One version entry is added per merge to `main`, written only when explicitly req
 - `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
 - `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
 - REPL full line editing: ←→ cursor, Home/End/Del, copy/paste, ↑↓ history, Tab completion all work with no setup; Tab now shows only the word being completed (profile names, not full commands), auto-completes to common prefix across multiple matches, and shows flags before values; implemented with `golang.org/x/term` raw-mode (no goroutines)
+- **Windows REPL arrow keys** — `initTerminal` now enables `ENABLE_VIRTUAL_TERMINAL_INPUT` on stdin so arrow keys produce ESC sequences; without this they produced Windows extended codes (`0xE0` prefix) that the key handler never matched
+- **Fish completion** — subcommand list corrected to v4 command surface: removed stale `switch`, `dashboard`, `quick`, `sessions`; added `create`, `group`, `rename`, `doctor`, `init`, `completion`; added missing `--clipboard`, `--shell`, `--install`, `--prompt`, `--group` flag completions
+- **PowerShell completion** — `export` was missing `--clipboard`; `completion` was missing `--prompt`
+- **Zsh completion** — two spurious blank entries removed from the command list
 
 ---
 
