@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // ── Command / flag metadata ───────────────────────────────────────────────────
@@ -342,26 +344,127 @@ func runREPL() {
 	runBasicREPL(binaryPath)
 }
 
-// runBasicREPL is the stable REPL loop (no raw-mode dependencies).
+// runBasicREPL runs the REPL. If the terminal supports raw mode it enables Tab
+// completion and arrow-key history. Falls back to plain line reading otherwise.
 func runBasicREPL(binaryPath string) {
 	printHeader("AWSSSO INTERACTIVE SHELL")
 	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
 		Dim, Reset+Bold, Reset+Dim, Reset)
-	fmt.Printf("  %sType %shelp%s for available commands, %sexit%s to quit.%s\n\n",
-		Dim, Reset+Bold, Reset+Dim, Reset+Bold, Reset+Dim, Reset)
+	fmt.Printf("  %sTab: complete   ↑↓: history   Ctrl+D / exit: quit%s\n\n",
+		Dim, Reset)
+
+	fd := int(os.Stdin.Fd())
+	isRaw := term.IsTerminal(fd)
+
+	// History buffer (in-memory for this session)
+	var history []string
+	historyIdx := -1
+
+	readInput := func(prompt string) (string, bool) {
+		fmt.Print(prompt)
+		if !isRaw {
+			line, ok := readLine()
+			return strings.TrimSpace(line), ok
+		}
+
+		oldState, err := term.MakeRaw(fd)
+		if err != nil {
+			isRaw = false
+			line, ok := readLine()
+			return strings.TrimSpace(line), ok
+		}
+		defer term.Restore(fd, oldState)
+
+		var buf []byte
+		b := make([]byte, 3)
+		historyIdx = len(history) // reset to end of history on each new line
+
+		for {
+			n, err := os.Stdin.Read(b)
+			if err != nil || n == 0 {
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return "", false
+			}
+			ch := b[0]
+
+			switch {
+			case n == 1 && (ch == '\r' || ch == '\n'):
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return strings.TrimSpace(string(buf)), true
+
+			case n == 1 && ch == 4: // Ctrl+D
+				term.Restore(fd, oldState)
+				fmt.Println()
+				if len(buf) == 0 {
+					return "", false // EOF
+				}
+				return strings.TrimSpace(string(buf)), true
+
+			case n == 1 && ch == 3: // Ctrl+C
+				term.Restore(fd, oldState)
+				fmt.Println("^C")
+				return "", true // empty line, continue
+
+			case n == 1 && (ch == 127 || ch == 8): // Backspace
+				if len(buf) > 0 {
+					buf = buf[:len(buf)-1]
+					fmt.Print("\b \b")
+				}
+
+			case n == 1 && ch == 9: // Tab
+				term.Restore(fd, oldState)
+				current := string(buf)
+				completions := tabComplete(current)
+				term.MakeRaw(fd)
+				if len(completions) == 1 {
+					suffix := completions[0][len(current):]
+					buf = append(buf, []byte(suffix)...)
+					fmt.Print(suffix)
+				} else if len(completions) > 1 {
+					fmt.Println()
+					for _, c := range completions {
+						fmt.Printf("  %s\n", c)
+					}
+					fmt.Print(prompt + string(buf))
+				}
+
+			case n >= 3 && b[0] == 27 && b[1] == '[': // Escape sequences
+				switch b[2] {
+				case 'A': // Up arrow
+					if historyIdx > 0 {
+						historyIdx--
+						clearLine(prompt, string(buf))
+						buf = []byte(history[historyIdx])
+						fmt.Print(string(buf))
+					}
+				case 'B': // Down arrow
+					if historyIdx < len(history)-1 {
+						historyIdx++
+						clearLine(prompt, string(buf))
+						buf = []byte(history[historyIdx])
+						fmt.Print(string(buf))
+					} else if historyIdx == len(history)-1 {
+						historyIdx = len(history)
+						clearLine(prompt, string(buf))
+						buf = nil
+					}
+				}
+
+			case n == 1 && ch >= 32: // Printable
+				buf = append(buf, ch)
+				os.Stdout.Write([]byte{ch})
+			}
+		}
+	}
 
 	for {
-		fmt.Print(replPrompt())
-
-		line, ok := readLine()
+		line, ok := readInput(replPrompt())
 		if !ok {
-			// EOF (Ctrl+D)
-			fmt.Println()
 			printInfo("Goodbye!")
 			return
 		}
-
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -369,6 +472,9 @@ func runBasicREPL(binaryPath string) {
 			printInfo("Goodbye!")
 			return
 		}
+
+		history = append(history, line)
+		historyIdx = len(history)
 
 		args := parseArgs(line)
 		if len(args) == 0 {
@@ -394,6 +500,43 @@ func runBasicREPL(binaryPath string) {
 		cachedReplConfig = nil
 		fmt.Println()
 	}
+}
+
+// clearLine erases the current prompt+input and moves the cursor to the start.
+func clearLine(prompt, current string) {
+	total := len([]rune(stripANSI(prompt))) + len([]rune(current))
+	fmt.Print("\r" + strings.Repeat(" ", total+2) + "\r")
+	fmt.Print(prompt)
+}
+
+// stripANSI removes ANSI escape codes for length calculation.
+func stripANSI(s string) string {
+	var out strings.Builder
+	skip := false
+	for _, r := range s {
+		if r == 0x1b {
+			skip = true
+		} else if skip && r == 'm' {
+			skip = false
+		} else if !skip {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+// tabComplete returns completion candidates for the current input.
+func tabComplete(current string) []string {
+	c := &replCompleter{}
+	runes := []rune(current)
+	results, length := c.Do(runes, len(runes))
+	prefix := string(runes[len(runes)-length:])
+	_ = prefix
+	var completions []string
+	for _, r := range results {
+		completions = append(completions, current+string(r))
+	}
+	return completions
 }
 
 // readLine reads one byte at a time so nothing is pre-buffered and the next

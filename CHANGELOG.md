@@ -34,7 +34,7 @@ One version entry is added per merge to `main`, written only when explicitly req
 - `init.go` — `isWindows()` now uses `runtime.GOOS` instead of env-var heuristic (was unreliable under Git Bash)
 - `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
 - `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
-- REPL no longer killed or immediately exiting on macOS — both `chzyer/readline` and `peterh/liner` require raw terminal mode which macOS blocks; replaced with a stable basic loop using standard blocking I/O; the prompt shows the active profile badge and exits cleanly on Ctrl+D
+- REPL tab completion and arrow-key history restored — `chzyer/readline` caused SIGKILL and `peterh/liner` exited immediately due to their goroutine/wrapper approach; replaced with a direct `golang.org/x/term` raw-mode handler that implements Tab, ↑↓ history, and Backspace without spawning additional goroutines; falls back to plain line reading if raw mode is unavailable
 
 ---
 
