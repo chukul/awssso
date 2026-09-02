@@ -2,14 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/chzyer/readline"
 )
 
 // ── Command / flag metadata ───────────────────────────────────────────────────
@@ -344,91 +340,13 @@ func runREPL() {
 		os.Exit(1)
 	}
 
-
-	home, _ := homeDir()
-	historyFile := filepath.Join(home, ".aws", "awssso_history")
-
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            replPrompt(),
-		HistoryFile:       historyFile,
-		AutoComplete:      &replCompleter{},
-		InterruptPrompt:   "^C",
-		EOFPrompt:         "exit",
-		HistorySearchFold: true,
-	})
-	if err != nil {
-		// readline unavailable (e.g. non-interactive pipe) — fall back to basic loop
-		runBasicREPL(binaryPath)
-		return
-	}
-	defer rl.Close()
-
-	printHeader("AWSSSO INTERACTIVE SHELL")
-	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
-		Dim, Reset+Bold, Reset+Dim, Reset)
-	fmt.Printf("  %s↑↓  history   Tab  complete   Ctrl+R  search   Ctrl+D / exit  quit%s\n\n",
-		Dim, Reset)
-
-	for {
-		rl.SetPrompt(replPrompt())
-		line, err := rl.Readline()
-
-		if err == readline.ErrInterrupt {
-			// Ctrl+C on non-empty line: clear and re-prompt
-			continue
-		}
-		if err == io.EOF {
-			// Ctrl+D: exit
-			fmt.Println()
-			printInfo("Goodbye!")
-			return
-		}
-		if err != nil {
-			return
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if line == "exit" || line == "quit" || line == "q" {
-			printInfo("Goodbye!")
-			return
-		}
-
-		args := parseArgs(line)
-		if len(args) == 0 {
-			continue
-		}
-
-		if !isKnownCommand(args[0]) {
-			printError(fmt.Sprintf("Unknown command %q", args[0]))
-			printInfo(fmt.Sprintf("Available: %s", strings.Join(replCommands[:len(replCommands)-2], ", ")))
-			fmt.Println()
-			continue
-		}
-
-		cmd := exec.Command(binaryPath, args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run()
-
-		// Sync active profile set by subprocess back into our own environment
-		// so the REPL prompt reflects the new selection immediately.
-		if active := readActiveProfile(); active != "" && active != os.Getenv("AWS_PROFILE") {
-			os.Setenv("AWS_PROFILE", active)
-		}
-
-		// Invalidate config cache so the next prompt reflects any profile changes
-		cachedReplConfig = nil
-
-		fmt.Println()
-	}
+	// Use the basic REPL — readline's raw-mode terminal control was being
+	// killed by macOS on some systems. The basic loop is stable on all platforms.
+	// Tab completion works through the shell's installed completion scripts.
+	runBasicREPL(binaryPath)
 }
 
-// runBasicREPL is used when readline is unavailable (non-interactive stdin).
+// runBasicREPL is the stable cross-platform REPL loop.
 func runBasicREPL(binaryPath string) {
 	printHeader("AWSSSO INTERACTIVE SHELL")
 	fmt.Printf("  %sType commands without the %sawssso%s prefix. Type exit to quit.%s\n\n",

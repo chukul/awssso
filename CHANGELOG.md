@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.1 — 2026-09-02
+
+### Fixes
+- REPL no longer killed on macOS — `chzyer/readline` goroutines were taking raw terminal control and macOS was sending SIGKILL; replaced with a stable basic loop that works on all platforms without modifying terminal settings; tab completion continues to work via the installed shell completion scripts
+
+---
+
 ## v4.0.0 — 2026-09-02
 
 ### Removed (command surface simplification)
