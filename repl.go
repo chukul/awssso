@@ -289,6 +289,10 @@ func loadSessionNames() []string {
 	return names
 }
 
+// cachedReplConfig is loaded once at REPL startup and reused for prompts.
+// Avoids parsing ~/.aws/config on every prompt redraw.
+var cachedReplConfig *AWSConfig
+
 // replPrompt builds the readline prompt, embedding the active AWS_PROFILE with
 // its environment colour. When < 15 min remain on the token it shows a warning.
 func replPrompt() string {
@@ -304,10 +308,14 @@ func replPrompt() string {
 
 // tokenBadge returns the coloured profile badge, appending a time warning when
 // the SSO token has less than 15 minutes remaining.
+// Uses cachedReplConfig to avoid re-parsing ~/.aws/config on every prompt.
 func tokenBadge(profile, color string) string {
 	suffix := ""
-	config, err := loadAWSConfig()
-	if err == nil {
+	if cachedReplConfig == nil {
+		cachedReplConfig, _ = loadAWSConfig()
+	}
+	config := cachedReplConfig
+	if config != nil {
 		if p, ok := config.Profiles[profile]; ok {
 			if tokenPath, pathErr := getSSOTokenPath(p, config); pathErr == nil {
 				if token, readErr := readSSOToken(tokenPath); readErr == nil {
@@ -412,6 +420,9 @@ func runREPL() {
 		if active := readActiveProfile(); active != "" && active != os.Getenv("AWS_PROFILE") {
 			os.Setenv("AWS_PROFILE", active)
 		}
+
+		// Invalidate config cache so the next prompt reflects any profile changes
+		cachedReplConfig = nil
 
 		fmt.Println()
 	}
