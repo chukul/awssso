@@ -414,20 +414,28 @@ func runBasicREPL(binaryPath string) {
 				}
 
 			case n == 1 && ch == 9: // Tab
-				term.Restore(fd, oldState)
 				current := string(buf)
 				completions := tabComplete(current)
-				term.MakeRaw(fd)
+
 				if len(completions) == 1 {
+					// Single match — auto-complete in raw mode
 					suffix := completions[0][len(current):]
 					buf = append(buf, []byte(suffix)...)
-					fmt.Print(suffix)
+					os.Stdout.Write([]byte(suffix))
 				} else if len(completions) > 1 {
+					// Multiple matches — restore terminal before printing
+					term.Restore(fd, oldState)
 					fmt.Println()
-					for _, c := range completions {
-						fmt.Printf("  %s\n", c)
+					max := 12
+					for i, c := range completions {
+						if i >= max {
+							fmt.Printf("  %s... and %d more%s\n", Dim, len(completions)-max, Reset)
+							break
+						}
+						fmt.Printf("  %s%s%s\n", Dim, c, Reset)
 					}
 					fmt.Print(prompt + string(buf))
+					oldState, _ = term.MakeRaw(fd)
 				}
 
 			case n >= 3 && b[0] == 27 && b[1] == '[': // Escape sequences
