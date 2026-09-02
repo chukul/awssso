@@ -6,6 +6,16 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.1 — 2026-09-02
+
+### Fixes
+- **Windows REPL arrow keys** — `initTerminal` now enables `ENABLE_VIRTUAL_TERMINAL_INPUT` on stdin so arrow keys produce ESC sequences; previously they produced Windows extended codes (`0xE0` prefix) that the REPL key handler never matched, making all arrow navigation silently fail
+- **Fish completion** — subcommand entries corrected to match v4 command surface: removed stale `switch`, `dashboard`, `quick`, `sessions`, `credential`; added `create`, `group`, `rename`, `doctor`, `init`, `completion`; added missing `--clipboard`, `--shell`, `--install`, `--prompt`, `--group` flag completions
+- **PowerShell completion** — `export` was missing `--clipboard`; `completion` was missing `--prompt`
+- **Zsh completion** — two spurious blank entries removed from the command list
+
+---
+
 ## v4.0.0 — 2026-09-02
 
 ### Removed
