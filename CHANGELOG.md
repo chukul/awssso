@@ -34,7 +34,7 @@ One version entry is added per merge to `main`, written only when explicitly req
 - `init.go` — `isWindows()` now uses `runtime.GOOS` instead of env-var heuristic (was unreliable under Git Bash)
 - `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
 - `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
-- REPL tab completion and arrow-key history restored — `chzyer/readline` caused SIGKILL and `peterh/liner` exited immediately; replaced with `golang.org/x/term` raw-mode handler (no goroutines); completion list now capped at 12 with overflow count and printed in cooked mode to prevent diagonal formatting
+- REPL full line editing restored — proper cursor movement (←→ Home End Del), copy/paste, ↑↓ history, and Tab completion all work inside the `awssso` shell; implemented directly with `golang.org/x/term` raw-mode (no goroutines that caused SIGKILL); completions now show flags first then values, display in cooked mode to prevent diagonal formatting; single match auto-completes inline
 
 ---
 

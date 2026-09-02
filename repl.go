@@ -386,11 +386,36 @@ func runBasicREPL(binaryPath string) {
 			line, ok := readLine()
 			return strings.TrimSpace(line), ok
 		}
-		defer term.Restore(fd, oldState)
 
-		var buf []byte
-		b := make([]byte, 3)
-		historyIdx = len(history) // reset to end of history on each new line
+		var buf []byte   // line content
+		cursor := 0      // insert position within buf
+		historyIdx = len(history)
+
+		// redraw redraws from cursor to end of line and repositions cursor.
+		redraw := func() {
+			// Erase from cursor to end, print tail, move cursor back
+			tail := buf[cursor:]
+			os.Stdout.Write([]byte("\033[K")) // clear to EOL
+			os.Stdout.Write(tail)
+			// Move cursor left by len(tail)
+			if len(tail) > 0 {
+				fmt.Printf("\033[%dD", len(tail))
+			}
+		}
+
+		// replaceContent replaces the whole line with new content.
+		replaceContent := func(newBuf []byte) {
+			// Move to start, clear line, print new content
+			if cursor > 0 {
+				fmt.Printf("\033[%dD", cursor)
+			}
+			fmt.Print("\033[K")
+			os.Stdout.Write(newBuf)
+			buf = newBuf
+			cursor = len(buf)
+		}
+
+		b := make([]byte, 32) // larger buffer to catch paste + escape seqs
 
 		for {
 			n, err := os.Stdin.Read(b)
@@ -399,78 +424,131 @@ func runBasicREPL(binaryPath string) {
 				fmt.Println()
 				return "", false
 			}
-			ch := b[0]
 
-			switch {
-			case n == 1 && (ch == '\r' || ch == '\n'):
-				term.Restore(fd, oldState)
-				fmt.Println()
-				return strings.TrimSpace(string(buf)), true
+			i := 0
+			for i < n {
+				ch := b[i]
 
-			case n == 1 && ch == 4: // Ctrl+D
-				term.Restore(fd, oldState)
-				fmt.Println()
-				if len(buf) == 0 {
-					return "", false // EOF
-				}
-				return strings.TrimSpace(string(buf)), true
-
-			case n == 1 && ch == 3: // Ctrl+C
-				term.Restore(fd, oldState)
-				fmt.Println("^C")
-				return "", true // empty line, continue
-
-			case n == 1 && (ch == 127 || ch == 8): // Backspace
-				if len(buf) > 0 {
-					buf = buf[:len(buf)-1]
-					fmt.Print("\b \b")
-				}
-
-			case n == 1 && ch == 9: // Tab
-				current := string(buf)
-				completions := tabComplete(current)
-
-				if len(completions) == 1 {
-					// Single match — auto-complete in raw mode
-					suffix := completions[0][len(current):]
-					buf = append(buf, []byte(suffix)...)
-					os.Stdout.Write([]byte(suffix))
-				} else if len(completions) > 1 {
-					// Multiple matches — restore terminal before printing so \n includes \r
+				switch {
+				case ch == '\r' || ch == '\n': // Enter
 					term.Restore(fd, oldState)
 					fmt.Println()
-					for _, c := range completions {
-						fmt.Printf("  %s%s%s\n", Dim, c, Reset)
-					}
-					fmt.Print(prompt + string(buf))
-					oldState, _ = term.MakeRaw(fd)
-				}
+					return strings.TrimSpace(string(buf)), true
 
-			case n >= 3 && b[0] == 27 && b[1] == '[': // Escape sequences
-				switch b[2] {
-				case 'A': // Up arrow
-					if historyIdx > 0 {
-						historyIdx--
-						clearLine(prompt, string(buf))
-						buf = []byte(history[historyIdx])
-						fmt.Print(string(buf))
+				case ch == 4: // Ctrl+D
+					term.Restore(fd, oldState)
+					fmt.Println()
+					if len(buf) == 0 {
+						return "", false
 					}
-				case 'B': // Down arrow
-					if historyIdx < len(history)-1 {
-						historyIdx++
-						clearLine(prompt, string(buf))
-						buf = []byte(history[historyIdx])
-						fmt.Print(string(buf))
-					} else if historyIdx == len(history)-1 {
-						historyIdx = len(history)
-						clearLine(prompt, string(buf))
-						buf = nil
+					return strings.TrimSpace(string(buf)), true
+
+				case ch == 3: // Ctrl+C
+					term.Restore(fd, oldState)
+					fmt.Println("^C")
+					return "", true
+
+				case ch == 1: // Ctrl+A — go to start
+					if cursor > 0 {
+						fmt.Printf("\033[%dD", cursor)
+						cursor = 0
+					}
+
+				case ch == 5: // Ctrl+E — go to end
+					if cursor < len(buf) {
+						fmt.Printf("\033[%dC", len(buf)-cursor)
+						cursor = len(buf)
+					}
+
+				case ch == 127 || ch == 8: // Backspace
+					if cursor > 0 {
+						buf = append(buf[:cursor-1], buf[cursor:]...)
+						cursor--
+						fmt.Print("\b")
+						redraw()
+					}
+
+				case ch == 27 && i+2 < n && b[i+1] == '[': // Escape sequence
+					code := b[i+2]
+					i += 2
+					switch code {
+					case 'D': // Left arrow
+						if cursor > 0 {
+							cursor--
+							fmt.Print("\033[D")
+						}
+					case 'C': // Right arrow
+						if cursor < len(buf) {
+							cursor++
+							fmt.Print("\033[C")
+						}
+					case 'A': // Up arrow — history previous
+						if historyIdx > 0 {
+							historyIdx--
+							replaceContent([]byte(history[historyIdx]))
+						}
+					case 'B': // Down arrow — history next
+						if historyIdx < len(history)-1 {
+							historyIdx++
+							replaceContent([]byte(history[historyIdx]))
+						} else {
+							historyIdx = len(history)
+							replaceContent(nil)
+						}
+					case '1', '7': // Home (^[[1~ or ^[[7~)
+						if cursor > 0 {
+							fmt.Printf("\033[%dD", cursor)
+							cursor = 0
+						}
+					case '4', '8': // End (^[[4~ or ^[[8~)
+						if cursor < len(buf) {
+							fmt.Printf("\033[%dC", len(buf)-cursor)
+							cursor = len(buf)
+						}
+					case '3': // Delete key (^[[3~)
+						if cursor < len(buf) {
+							buf = append(buf[:cursor], buf[cursor+1:]...)
+							redraw()
+						}
+					}
+
+				case ch == 9: // Tab
+					current := string(buf[:cursor])
+					completions := tabComplete(current)
+					if len(completions) == 1 {
+						suffix := completions[0][len(current):]
+						newBuf := append(buf[:cursor], append([]byte(suffix), buf[cursor:]...)...)
+						os.Stdout.Write([]byte(suffix))
+						buf = newBuf
+						cursor += len(suffix)
+						redraw()
+					} else if len(completions) > 1 {
+						term.Restore(fd, oldState)
+						fmt.Println()
+						for _, c := range completions {
+							fmt.Printf("  %s%s%s\n", Dim, c, Reset)
+						}
+						fmt.Print(prompt + string(buf))
+						if cursor < len(buf) {
+							fmt.Printf("\033[%dD", len(buf)-cursor)
+						}
+						oldState, _ = term.MakeRaw(fd)
+					}
+
+				default:
+					if ch >= 32 { // Printable — handles paste too
+						// Insert at cursor
+						newBuf := make([]byte, len(buf)+1)
+						copy(newBuf, buf[:cursor])
+						newBuf[cursor] = ch
+						copy(newBuf[cursor+1:], buf[cursor:])
+						buf = newBuf
+						cursor++
+						os.Stdout.Write([]byte{ch})
+						redraw()
 					}
 				}
-
-			case n == 1 && ch >= 32: // Printable
-				buf = append(buf, ch)
-				os.Stdout.Write([]byte{ch})
+				i++
 			}
 		}
 	}
