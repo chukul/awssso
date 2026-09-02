@@ -23,7 +23,7 @@ func isKnownCommand(cmd string) bool {
 
 var replCommands = []string{
 	"login", "create", "profiles", "export", "refresh",
-	"whoami", "console", "group", "pin", "unpin",
+	"whoami", "console", "group",
 	"rename", "delete", "doctor", "init",
 	"completion", "shell", "help", "exit", "quit",
 }
@@ -161,24 +161,6 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 			return filterComplete(allGroupTags(), prefix)
 		}
 
-	case "pin":
-		// Only show profiles that are not yet pinned
-		pinned := loadPins()
-		pinnedSet := make(map[string]bool, len(pinned))
-		for _, p := range pinned {
-			pinnedSet[p] = true
-		}
-		var unpinned []string
-		for _, n := range loadProfileNames() {
-			if !pinnedSet[n] {
-				unpinned = append(unpinned, n)
-			}
-		}
-		return filterComplete(unpinned, prefix)
-
-	case "unpin":
-		// Only show profiles that are currently pinned
-		return filterComplete(loadPins(), prefix)
 	}
 
 	return filterComplete(remainingFlagsFor(cmd, tokens, prefix), prefix)

@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.1 — 2026-09-02
+
+### Removed
+- `pin` and `unpin` commands removed — use `awssso group favourites --add/--remove <profile>` and `awssso profiles --group favourites` instead; any existing pinned data is preserved in `profile_groups.json` under the `favourites` tag
+
+---
+
 ## v4.0.0 — 2026-09-02
 
 ### Removed (command surface simplification)

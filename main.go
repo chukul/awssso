@@ -51,9 +51,6 @@ func main() {
 
 	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
 
-	pinCmd := flag.NewFlagSet("pin", flag.ExitOnError)
-	unpinCmd := flag.NewFlagSet("unpin", flag.ExitOnError)
-
 	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
 	groupAdd := groupCmd.Bool("add", false, "Add profile to a group tag")
 	groupRemove := groupCmd.Bool("remove", false, "Remove profile from a group tag")
@@ -116,20 +113,6 @@ func main() {
 			os.Exit(1)
 		}
 		runRename(args[0], args[1])
-	case "pin":
-		_ = pinCmd.Parse(os.Args[2:])
-		if len(pinCmd.Args()) == 0 {
-			runPin("")
-		} else {
-			runPin(pinCmd.Args()[0])
-		}
-	case "unpin":
-		_ = unpinCmd.Parse(os.Args[2:])
-		if len(unpinCmd.Args()) == 0 {
-			runUnpin("")
-		} else {
-			runUnpin(unpinCmd.Args()[0])
-		}
 	case "group":
 		_ = groupCmd.Parse(os.Args[2:])
 		runGroup(groupCmd.Args(), *groupAdd, *groupRemove, *groupProfile)
@@ -187,8 +170,6 @@ func printUsage() {
 
 	fmt.Fprintf(os.Stderr, "%sMANAGEMENT:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %sgroup%s       Manage profile groups (--add, --remove; profiles --group <tag>)\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %spin%s         Pin profiles to the top of all lists\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sunpin%s       Remove a profile pin\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdelete%s      Delete one or more profiles\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdoctor%s      Run a config and token health check\n", Cyan, Reset)

@@ -35,8 +35,8 @@ _awssso_commands() {
     'whoami:Show current profile and token status'
     'console:Open AWS Console in browser'
     'group:Manage profile groups'
-    'pin:Pin a profile to the top of lists'
-    'unpin:Remove a profile pin'
+    
+    
     'rename:Rename a profile'
     'delete:Delete one or more profiles'
     'doctor:Run config and token health check'
@@ -101,7 +101,7 @@ const bashCompletion = `_awssso() {
   local cur prev words cword
   _init_completion || return
 
-  local commands="login create profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help"
+  local commands="login create profiles export refresh whoami console group rename delete doctor init completion shell help"
 
   if [[ $cword -eq 1 ]]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -152,7 +152,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $commands = @('login','create','profiles','export','refresh','whoami','console',
-                  'group','pin','unpin','rename','delete','doctor','init',
+                  'group','rename','delete','doctor','init',
                   'completion','shell','help')
 
     $flagMap = @{
@@ -217,7 +217,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
 `
 
 const fishCompletion = `# awssso fish shell completions
-set -l commands login create profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help
+set -l commands login create profiles export refresh whoami console group rename delete doctor init completion shell help
 
 # Subcommands (only shown before a subcommand is typed)
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a login      -d "Authenticate via AWS SSO"
