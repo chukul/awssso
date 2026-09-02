@@ -15,7 +15,7 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **Copy to clipboard** — `awssso copy` copies credentials; auto-detects Terraform/Docker context
 - **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback; `whoami` refreshes silently
 - **Profile groups** — tag profiles (`awssso group`), filter lists by tag (`profiles --group eks`), create and delete groups
-- **Favourites** — `awssso pin` floats profiles to top of every list; `pin` alone activates one directly
+- **Favourites** — `awssso pin` floats profiles to top of every list; stored as a reserved group tag, no separate file
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
 - **Interactive shell** — `awssso` drops into a REPL with readline history, arrow keys, and live tab completion
 - **Tab completion** — zsh, bash, fish, PowerShell; all commands, flags, profile names, group tags complete dynamically

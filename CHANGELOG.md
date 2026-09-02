@@ -6,6 +6,16 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.1 — 2026-09-02
+
+### Refactor (Pass 2)
+- `pin`/`unpin` now use the groups system internally — pins are stored as the `favourites` group tag in `profile_groups.json`; `pinned_profiles.json` is no longer created and existing data is auto-migrated on first run
+- Token status check (`profileTokenStatus`) is now used consistently in all three profile-list displays — eliminated three duplicated inline token-read blocks (~75 lines removed)
+- Dead code removed: `status := "No SSO"` assignment immediately overwritten in `pickProfileForConsole`
+- `awssso prompt` restored as a hidden backward-compat alias; users should migrate PS1 to `awssso completion --prompt`
+
+---
+
 ## v4.0.0 — 2026-08-24
 
 ### Removed (Pass 1 simplification)

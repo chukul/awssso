@@ -5,62 +5,105 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
 
+// favouritesTag is the reserved group tag used by pin/unpin.
+// Pins are stored in profile_groups.json under this tag — no separate file.
+const favouritesTag = "favourites"
 const pinnedIcon = "📌"
 
-type PinnedProfiles struct {
-	Pins []string `json:"pins"`
+// loadPins returns all pinned profile names (profiles in the favourites group).
+func loadPins() []string {
+	migratePinsToGroups()
+	return profilesInGroup(favouritesTag)
 }
 
-func getPinnedPath() (string, error) {
+// savePins replaces the favourites group with the given profile list.
+func savePins(pins []string) error {
+	pg := loadGroups()
+	if len(pins) == 0 {
+		delete(pg.Groups, favouritesTag)
+	} else {
+		pg.Groups[favouritesTag] = pins
+	}
+	return saveGroups(pg)
+}
+
+// isPinned returns true if the profile is in the favourites group.
+func isPinned(name string) bool {
+	pg := loadGroups()
+	for _, p := range pg.Groups[favouritesTag] {
+		if p == name {
+			return true
+		}
+	}
+	return false
+}
+
+// sortWithPins moves pinned (favourites) profiles to the front of the slice.
+func sortWithPins(names []string) []string {
+	pins := loadPins()
+	pinSet := make(map[string]int, len(pins))
+	for i, p := range pins {
+		pinSet[p] = i
+	}
+	pinned := make([]string, 0)
+	rest := make([]string, 0)
+	for _, n := range names {
+		if _, ok := pinSet[n]; ok {
+			pinned = append(pinned, n)
+		} else {
+			rest = append(rest, n)
+		}
+	}
+	return append(pinned, rest...)
+}
+
+// profileLabel returns the profile name with a 📌 prefix if pinned.
+func profileLabel(name string) string {
+	if isPinned(name) {
+		return pinnedIcon + " " + name
+	}
+	return name
+}
+
+// migratePinsToGroups runs once to move old pinned_profiles.json into profile_groups.json.
+func migratePinsToGroups() {
 	home, err := homeDir()
 	if err != nil {
-		return "", err
+		return
 	}
-	return filepath.Join(home, ".aws", "sso", "pinned_profiles.json"), nil
+	oldPath := home + "/.aws/sso/pinned_profiles.json"
+	data, err := os.ReadFile(oldPath)
+	if err != nil {
+		return // nothing to migrate
+	}
+
+	// Already migrated?
+	pg := loadGroups()
+	if _, exists := pg.Groups[favouritesTag]; exists {
+		os.Remove(oldPath)
+		return
+	}
+
+	var old struct {
+		Pins []string `json:"pins"`
+	}
+	if jsonErr := json.Unmarshal(data, &old); jsonErr != nil || len(old.Pins) == 0 {
+		os.Remove(oldPath)
+		return
+	}
+
+	pg.Groups[favouritesTag] = old.Pins
+	if saveErr := saveGroups(pg); saveErr == nil {
+		os.Remove(oldPath)
+	}
 }
 
-func loadPins() []string {
-	path, err := getPinnedPath()
-	if err != nil {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var pp PinnedProfiles
-	if err := json.Unmarshal(data, &pp); err != nil {
-		return nil
-	}
-	return pp.Pins
-}
+// ── pin / unpin commands ──────────────────────────────────────────────────────
 
-func savePins(pins []string) error {
-	path, err := getPinnedPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(PinnedProfiles{Pins: pins}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0600)
-}
-
-func isPinned(name string) bool {
-	return slices.Contains(loadPins(), name)
-}
-
-// printPinsList displays pinned profiles without any activation prompt.
 func printPinsList(pins []string) {
 	printHeader(fmt.Sprintf("PINNED PROFILES (%d)", len(pins)))
 	config, _ := loadAWSConfig()
@@ -77,17 +120,15 @@ func printPinsList(pins []string) {
 	fmt.Println()
 }
 
-// runListPins shows pinned profiles and lets the user activate one.
+// runListPins shows pinned profiles and prompts to activate one.
 func runListPins() {
 	pins := loadPins()
 	if len(pins) == 0 {
 		printInfo("No profiles are pinned. Use: awssso pin <profile-name>")
 		return
 	}
-
 	printPinsList(pins)
 
-	// Activation prompt
 	printPrompt(fmt.Sprintf("Activate a profile %s(1-%d)%s or Enter to skip: ", Dim, len(pins), Reset))
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -109,23 +150,20 @@ func runListPins() {
 		printError("Failed to load config")
 		return
 	}
-
 	profile, ok := config.Profiles[selectedName]
 	if !ok {
 		printError(fmt.Sprintf("Profile %q not found in config", selectedName))
 		return
 	}
-
 	if !showProductionWarning(profile) {
 		return
 	}
-
 	os.Setenv("AWS_PROFILE", selectedName)
 	writeActiveProfile(selectedName)
 	setProfileScript(selectedName)
 }
 
-// runListPinsOnly shows pinned profiles — no activation prompt. Used by unpin.
+// runListPinsOnly shows pinned profiles without an activation prompt.
 func runListPinsOnly() {
 	pins := loadPins()
 	if len(pins) == 0 {
@@ -151,22 +189,21 @@ func runPin(profileName string) {
 		os.Exit(1)
 	}
 
-	pins := loadPins()
-	if slices.Contains(pins, profileName) {
+	if isPinned(profileName) {
 		printInfo(fmt.Sprintf("Profile %q is already pinned.", profileName))
 		return
 	}
-	pins = append([]string{profileName}, pins...) // pinned profiles appear first
+	pins := append([]string{profileName}, loadPins()...)
 	if err := savePins(pins); err != nil {
-		printError(fmt.Sprintf("Failed to save pins: %v", err))
+		printError(fmt.Sprintf("Failed to save: %v", err))
 		os.Exit(1)
 	}
-	printSuccess(fmt.Sprintf("%s Pinned profile %q — it will appear at the top of all lists.", pinnedIcon, profileName))
+	printSuccess(fmt.Sprintf("%s Pinned %q — appears at the top of all lists.", pinnedIcon, profileName))
 }
 
 func runUnpin(profileName string) {
 	if profileName == "" {
-		runListPinsOnly() // list only — no activate prompt
+		runListPinsOnly()
 		return
 	}
 
@@ -185,40 +222,8 @@ func runUnpin(profileName string) {
 		return
 	}
 	if err := savePins(newPins); err != nil {
-		printError(fmt.Sprintf("Failed to save pins: %v", err))
+		printError(fmt.Sprintf("Failed to save: %v", err))
 		os.Exit(1)
 	}
-	printSuccess(fmt.Sprintf("Unpinned profile %q.", profileName))
-}
-
-// sortWithPins moves pinned profiles to the front of a name slice.
-func sortWithPins(names []string) []string {
-	pins := loadPins()
-	pinSet := make(map[string]int, len(pins))
-	for i, p := range pins {
-		pinSet[p] = i
-	}
-
-	pinned := make([]string, 0)
-	rest := make([]string, 0)
-	for _, n := range names {
-		if _, ok := pinSet[n]; ok {
-			pinned = append(pinned, n)
-		} else {
-			rest = append(rest, n)
-		}
-	}
-	// Sort pinned by their pin order
-	slices.SortFunc(pinned, func(a, b string) int {
-		return pinSet[a] - pinSet[b]
-	})
-	return append(pinned, rest...)
-}
-
-// profileLabel returns the profile name with a 📌 prefix if it is pinned.
-func profileLabel(name string) string {
-	if isPinned(name) {
-		return pinnedIcon + " " + name
-	}
-	return name
+	printSuccess(fmt.Sprintf("Unpinned %q.", profileName))
 }

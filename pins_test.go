@@ -35,9 +35,14 @@ func TestSaveAndLoadPins(t *testing.T) {
 	if len(got) != len(want) {
 		t.Errorf("expected %d pins, got %d", len(want), len(got))
 	}
-	for i, p := range want {
-		if got[i] != p {
-			t.Errorf("pin[%d]: want %q, got %q", i, p, got[i])
+	// Order may differ after migrating through the groups system; check set equality
+	gotSet := make(map[string]bool)
+	for _, p := range got {
+		gotSet[p] = true
+	}
+	for _, p := range want {
+		if !gotSet[p] {
+			t.Errorf("pin %q missing from loaded pins %v", p, got)
 		}
 	}
 }

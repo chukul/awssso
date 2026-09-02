@@ -1234,33 +1234,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 			session = "(inline)"
 		}
 
-		status := "No SSO"
-		remaining := ""
-		if p.SSOSession != "" || p.SSOStartURL != "" {
-			mockProfile := &AWSProfile{}
-			if p.SSOSession != "" {
-				mockProfile.SSOSession = p.SSOSession
-			} else {
-				mockProfile.SSOStartURL = p.SSOStartURL
-			}
-			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-				if token, err := readSSOToken(tokenPath); err == nil {
-					if token.IsExpired() {
-						status = "Expired"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expired %s ago", formatDuration(time.Since(parsed)))
-						}
-					} else {
-						status = "Active"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("%s left", formatDuration(time.Until(parsed)))
-						}
-					}
-				} else {
-					status = "Not Logged In"
-				}
-			}
-		}
+		status, remaining := profileTokenStatus(p, config)
 
 		allRows = append(allRows, profileRow{
 			name:      name,
@@ -1486,24 +1460,8 @@ func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, privat
 
 	var rows []row
 	for name, sess := range config.Sessions {
-		status := "Not Logged In"
-		remaining := ""
-		mockProfile := &AWSProfile{SSOSession: name}
-		if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-			if token, err := readSSOToken(tokenPath); err == nil {
-				if token.IsExpired() {
-					status = "Expired"
-					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-						remaining = fmt.Sprintf("expired %s ago", formatDuration(time.Since(parsed)))
-					}
-				} else {
-					status = "Active"
-					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-						remaining = fmt.Sprintf("%s remaining", formatDuration(time.Until(parsed)))
-					}
-				}
-			}
-		}
+		mock := &AWSProfile{SSOSession: name}
+		status, remaining := profileTokenStatus(mock, config)
 		rows = append(rows, row{
 			name:     name,
 			startURL: sess.SSOStartURL,
@@ -2143,36 +2101,11 @@ func runProfiles() {
 	allRows := []profileRow{}
 	for name, p := range config.Profiles {
 		env := detectEnvironment(p)
-		status := "No SSO"
-		remaining := ""
 		session := p.SSOSession
-
-		if p.SSOSession != "" || p.SSOStartURL != "" {
-			mockProfile := &AWSProfile{}
-			if p.SSOSession != "" {
-				mockProfile.SSOSession = p.SSOSession
-			} else {
-				mockProfile.SSOStartURL = p.SSOStartURL
-				session = "(inline)"
-			}
-			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-				if token, err := readSSOToken(tokenPath); err == nil {
-					if token.IsExpired() {
-						status = "Expired"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expired %s ago", formatDuration(time.Since(parsed)))
-						}
-					} else {
-						status = "Active"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expires in %s", formatDuration(time.Until(parsed)))
-						}
-					}
-				} else {
-					status = "Not Logged In"
-				}
-			}
+		if session == "" && p.SSOStartURL != "" {
+			session = "(inline)"
 		}
+		status, remaining := profileTokenStatus(p, config)
 
 		allRows = append(allRows, profileRow{
 			name:      name,
