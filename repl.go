@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/peterh/liner"
 )
 
 // ── Command / flag metadata ───────────────────────────────────────────────────
@@ -342,50 +339,26 @@ func runREPL() {
 		printError("Could not determine binary path")
 		os.Exit(1)
 	}
+	runBasicREPL(binaryPath)
+}
 
-	home, _ := homeDir()
-	historyFile := filepath.Join(home, ".aws", "awssso_history")
-
-	l := liner.NewLiner()
-	defer func() {
-		l.Close()
-	}()
-
-	// Tab completion
-	l.SetCompleter(func(line string) []string {
-		tokens := parseArgs(line)
-		endsWithSpace := len(line) > 0 && (line[len(line)-1] == ' ' || line[len(line)-1] == '\t')
-		c := &replCompleter{}
-		results, _ := c.Do([]rune(line), len([]rune(line)))
-		var completions []string
-		for _, r := range results {
-			suffix := string(r)
-			_ = endsWithSpace
-			_ = tokens
-			completions = append(completions, line+suffix)
-		}
-		return completions
-	})
-
-	// Load history
-	if f, err := os.Open(historyFile); err == nil {
-		l.ReadHistory(f)
-		f.Close()
-	}
-
+// runBasicREPL is the stable REPL loop (no raw-mode dependencies).
+func runBasicREPL(binaryPath string) {
 	printHeader("AWSSSO INTERACTIVE SHELL")
 	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
 		Dim, Reset+Bold, Reset+Dim, Reset)
-	fmt.Printf("  %sTab: complete   ↑↓: history   Ctrl+D / exit: quit%s\n\n",
-		Dim, Reset)
+	fmt.Printf("  %sType %shelp%s for available commands, %sexit%s to quit.%s\n\n",
+		Dim, Reset+Bold, Reset+Dim, Reset+Bold, Reset+Dim, Reset)
 
 	for {
-		prompt := replPrompt() + " "
-		line, err := l.Prompt(prompt)
-		if err == liner.ErrPromptAborted || err != nil {
+		fmt.Print(replPrompt())
+
+		line, ok := readLine()
+		if !ok {
+			// EOF (Ctrl+D)
 			fmt.Println()
 			printInfo("Goodbye!")
-			break
+			return
 		}
 
 		line = strings.TrimSpace(line)
@@ -394,10 +367,8 @@ func runREPL() {
 		}
 		if line == "exit" || line == "quit" || line == "q" {
 			printInfo("Goodbye!")
-			break
+			return
 		}
-
-		l.AppendHistory(line)
 
 		args := parseArgs(line)
 		if len(args) == 0 {
@@ -421,52 +392,6 @@ func runREPL() {
 			os.Setenv("AWS_PROFILE", active)
 		}
 		cachedReplConfig = nil
-		fmt.Println()
-	}
-
-	// Save history
-	if f, err := os.Create(historyFile); err == nil {
-		l.WriteHistory(f)
-		f.Close()
-	}
-}
-
-// runBasicREPL is the stable cross-platform REPL loop.
-func runBasicREPL(binaryPath string) {
-	printHeader("AWSSSO INTERACTIVE SHELL")
-	fmt.Printf("  %sType commands without the %sawssso%s prefix. Type exit to quit.%s\n\n",
-		Dim, Reset+Bold, Reset+Dim, Reset)
-
-	for {
-		fmt.Printf("%sawssso%s › ", Cyan+Bold, Reset)
-
-		line, ok := readLine()
-		if !ok {
-			fmt.Println()
-			printInfo("Goodbye!")
-			return
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if line == "exit" || line == "quit" || line == "q" {
-			printInfo("Goodbye!")
-			return
-		}
-
-		args := parseArgs(line)
-		if len(args) == 0 {
-			continue
-		}
-
-		cmd := exec.Command(binaryPath, args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run()
-
 		fmt.Println()
 	}
 }
