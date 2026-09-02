@@ -35,8 +35,6 @@ _awssso_commands() {
     'whoami:Show current profile and token status'
     'console:Open AWS Console in browser'
     'group:Manage profile groups'
-    
-    
     'rename:Rename a profile'
     'delete:Delete one or more profiles'
     'doctor:Run config and token health check'
@@ -163,8 +161,8 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
         'console'    = @('--profile')
         'whoami'     = @('--profile')
         'delete'     = @('--profile')
-        'export'     = @('--profile','--format')
-        'completion' = @('--shell','--install')
+        'export'     = @('--profile','--format','--clipboard')
+        'completion' = @('--shell','--install','--prompt')
     }
 
     $elements = $commandAst.CommandElements
@@ -221,23 +219,24 @@ set -l commands login create profiles export refresh whoami console group rename
 
 # Subcommands (only shown before a subcommand is typed)
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a login      -d "Authenticate via AWS SSO"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a credential -d "Output credentials in JSON format"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a switch     -d "Interactively select account/role"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a console    -d "Open AWS Console in browser"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a dashboard  -d "Interactive TUI dashboard"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a whoami     -d "Show current profile and token status"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a quick      -d "Quick switch between recent profiles"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a create     -d "Pick an account/role and create a profile"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a profiles   -d "List profiles and activate one"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a delete     -d "Delete one or more profiles"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a sessions   -d "List all SSO sessions"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a export     -d "Export credentials (--format, --clipboard)"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a refresh    -d "Refresh expired SSO tokens"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a export     -d "Export credentials for DevOps tools"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a shell      -d "Start an interactive session"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a whoami     -d "Show current profile and token status"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a console    -d "Open AWS Console in browser"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a group      -d "Manage profile groups"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a rename     -d "Rename a profile"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a delete     -d "Delete one or more profiles"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a doctor     -d "Run config and token health check"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a init       -d "First-time setup wizard"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a completion -d "Shell completion and prompt badge (--install, --prompt)"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a shell      -d "Start the interactive shell"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a help       -d "Show help message"
 
 # --profile (dynamic, reads ~/.aws/config)
 complete -c awssso -l profile -r -d "AWS profile name" \
-  -n "__fish_seen_subcommand_from login create credential console whoami delete refresh export" \
+  -n "__fish_seen_subcommand_from login create console whoami delete refresh export" \
   -a "(awssso __list-profiles 2>/dev/null)"
 
 # --session (dynamic, reads ~/.aws/config)
@@ -257,6 +256,25 @@ complete -c awssso -l force -d "Refresh even valid tokens" \
 complete -c awssso -l format -r -d "Export format" \
   -n "__fish_seen_subcommand_from export" \
   -a "env\t'Shell env vars' terraform\t'Terraform vars' docker\t'Docker env file' json\t'Raw JSON' yaml\t'YAML' kyaml\t'Kubernetes Secret' credential_process\t'credential_process line'"
+
+# --clipboard
+complete -c awssso -l clipboard -d "Copy credentials to clipboard" \
+  -n "__fish_seen_subcommand_from export"
+
+# --shell
+complete -c awssso -l shell -r -d "Shell type" \
+  -n "__fish_seen_subcommand_from completion" \
+  -a "zsh\t'Zsh' bash\t'Bash' fish\t'Fish' powershell\t'PowerShell'"
+
+# --install / --prompt
+complete -c awssso -l install -d "Install for the current user" \
+  -n "__fish_seen_subcommand_from completion"
+complete -c awssso -l prompt -d "Output or install shell prompt badge" \
+  -n "__fish_seen_subcommand_from completion"
+
+# --group (profiles command)
+complete -c awssso -l group -r -d "Filter by group tag" \
+  -n "__fish_seen_subcommand_from profiles"
 `
 
 // ── Command handlers ──────────────────────────────────────────────────────────
@@ -480,7 +498,7 @@ func ensureZshrcFpath(home, completionsDir string) {
 		toAdd = append(toAdd, compLine)
 	}
 	fmt.Fprintf(f, "\n# awssso tab completion\n%s\n", strings.Join(toAdd, "\n"))
-	printSuccess(fmt.Sprintf("Updated ~/.zshrc with fpath and compinit"))
+	printSuccess("Updated ~/.zshrc with fpath and compinit")
 }
 
 // runListProfiles prints all profile names, one per line. Used by completion scripts.
