@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.4 — 2026-09-02
+
+### Fixes
+- REPL startup crash (`killed`) — `replPrompt()` was calling `loadAWSConfig()` on every prompt redraw, parsing all configured profiles from disk each time; at readline init time this blocked the terminal and the OS killed the process; config now cached on first call and invalidated after each command
+
+---
+
 ## v4.0.3 — 2026-09-02
 
 ### Changes

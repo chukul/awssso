@@ -18,7 +18,7 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **Favourites** — `awssso pin` floats profiles to the top of every list; stored as a reserved group tag (`favourites`), no separate file
 - **Cross-platform** — all path handling uses `filepath.Join`; Windows, macOS, and Linux all tested
 - **Interactive TUI dashboard** — real-time session status with keyboard-driven refresh/login
-- **Interactive shell** — `awssso` drops into a REPL with readline history, arrow keys, and live tab completion
+- **Interactive shell** — `awssso` drops into a REPL with readline history, arrow keys, and live tab completion; config cached for fast prompt redraws
 - **Tab completion** — zsh, bash, fish, PowerShell; all commands, flags, profile names, group tags complete dynamically
 - **Shell prompt badge** — `awssso prompt --install` patches your shell config; shows `[🔴 prod ~9m]` with expiry warning
 - **Environment detection** — colour-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
