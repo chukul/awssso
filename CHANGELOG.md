@@ -6,6 +6,24 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v3.0.5 — 2026-08-24
+
+### Removed (Pass 1 simplification)
+- `dashboard` — removed; TUI duplicated what `profiles` and the REPL already provide
+- `quick` — removed; `profiles` + pins covers the same use case without a separate command
+- `sessions` — removed; session health info is available via `doctor` and `profiles`
+- `copy` — merged into `export --clipboard`; clipboard is now a flag, not a separate command
+- `prompt` — merged into `completion --prompt` (print badge) and `completion --prompt --install` (configure shell); groups naturally with other shell integration
+- `credential` — hidden from help and tab completion; still works for `credential_process` entries in `~/.aws/config`
+
+### Changes
+- `export --clipboard` replaces `awssso copy` — same functionality, simpler surface
+- `completion --prompt` replaces `awssso prompt` — for PS1: use `$(awssso completion --prompt)`
+- `completion --prompt --install` replaces `awssso prompt --install`
+- Help text reorganised into Core / Management / Shell Integration sections
+
+---
+
 ## v3.0.4 — 2026-08-24
 
 ### Features

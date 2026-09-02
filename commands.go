@@ -2570,7 +2570,7 @@ func runQuick() {
 	fmt.Printf("  %sawssso export --profile %s%s\n", Dim, selectedProfile.Name, Reset)
 }
 
-func runExport(profileName string, format string) {
+func runExport(profileName string, format string, clipboard bool) {
 	var exportFormat ExportFormat
 	switch strings.ToLower(format) {
 	case "env", "environment":
@@ -2625,9 +2625,21 @@ func runExport(profileName string, format string) {
 
 	env := detectEnvironment(profile)
 	envSymbol := getEnvironmentSymbol(env)
+
+	if clipboard {
+		if err := writeToClipboard(output); err != nil {
+			printError(fmt.Sprintf("Failed to copy to clipboard: %v", err))
+			printInfo("Printing to stdout instead:")
+			fmt.Println(output)
+			os.Exit(1)
+		}
+		printSuccess(fmt.Sprintf("Credentials copied to clipboard! %s %s / %s format", envSymbol, profileName, format))
+		printInfo(fmt.Sprintf("Expires: %s", creds.Expiration))
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "\n%s Export for profile: %s%s%s (%s %s)\n", Dim, Bold, profileName, Dim, envSymbol, env)
 	fmt.Fprintf(os.Stderr, " Format: %s\n%s\n", format, Reset)
-
 	fmt.Println(output)
 }
 

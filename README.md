@@ -56,42 +56,50 @@ go build -o awssso.exe .
 
 ## Commands
 
-These commands work on all platforms. Examples below show the platform-appropriate shell syntax.
+**Core** — what you use every day
 
 | Command | Description |
 |---------|-------------|
-| `login` | Authenticate via AWS SSO; `--group <tag>` logs in to all sessions for a group |
-| `switch` | Interactively select an AWS account/role and create a profile |
-| `credential` | Output temporary AWS credentials in JSON (`credential_process` format) |
-| `console` | Open AWS Management Console in browser, pre-authenticated |
-| `whoami` | Display current profile, account, role, and SSO token status |
-| `profiles` | List all profiles and set one as active; auto-configures unconfigured profiles |
-| `delete` | Delete one or more profiles (interactive or by name) |
-| `sessions` | List all SSO sessions with identity info and token status |
-| `refresh` | Refresh sessions — interactive picker, by name, or multiple at once |
-| `quick` | Quick switch between recently used profiles |
-| `export` | Export credentials — shows full profile picker (including unconfigured profiles) when no `--profile` given |
-| `copy` | Copy credentials to clipboard — shows full profile picker when no `--profile` given |
-| `doctor` | Run a health check on config, tokens, and PATH |
-| `prompt` | Output a profile badge for shell PS1/PROMPT integration |
-| `init` | First-time setup wizard (URL → login → account/role → save) |
+| `login` | Authenticate via AWS SSO (`--group`, `--session`, `--private`) |
+| `switch` | Pick an account/role and create a profile |
+| `profiles` | List and activate profiles (`--group <tag>` to filter) |
+| `export` | Get credentials (`--format`, `--clipboard`) |
+| `refresh` | Refresh sessions — interactive picker or `--session` |
+| `whoami` | Current profile, account, role, and token status |
+| `console` | Open AWS Management Console in browser |
+
+**Management**
+
+| Command | Description |
+|---------|-------------|
+| `group` | Tag profiles into groups; `profiles --group <tag>` filters |
+| `pin` / `unpin` | Float profiles to the top of every list |
 | `rename` | Rename a profile in `~/.aws/config` |
-| `pin` | Pin a profile to the top of all lists; `pin` alone activates one directly |
-| `unpin` | List or remove a profile pin |
-| `group` | Tag profiles into named groups; `profiles --group <tag>` filters any list |
-| `dashboard` | Interactive TUI session management dashboard |
-| `shell` | Spawn a system shell (bash/zsh/PowerShell) with the active profile's AWS credentials in the environment; use from the REPL to run terraform, aws-cli, etc. |
-| `completion` | Generate shell tab-completion script |
+| `delete` | Delete profiles (`delete my-profile` or `--profile my-profile`) |
+| `doctor` | Config and token health check |
+| `init` | First-time setup wizard |
+
+**Shell integration**
+
+| Command | Description |
+|---------|-------------|
+| `completion --install` | Install tab completion (zsh, bash, fish, PowerShell) |
+| `completion --prompt --install` | Install shell prompt badge (`[🔴 prod ~9m]`) |
+| `completion --prompt` | Print badge for PS1 embedding |
+
+> `credential` is intentionally unlisted — it is only needed for `credential_process = awssso credential --profile ...` entries in `~/.aws/config`.
 
 ### Options
 
 | Flag | Applies To | Description |
 |------|-----------|-------------|
 | `--profile <name>` | Most commands | AWS profile name (defaults to `$AWS_PROFILE` or `default`) |
-| `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session (multi-identity) |
+| `--group <tag>` | `login`, `profiles` | Target a profile group |
+| `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session |
 | `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
-| `--format <fmt>` | `export`, `copy` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
-| `--force` | `refresh` | Refresh even valid tokens (proactive refresh) |
+| `--format <fmt>` | `export` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
+| `--clipboard` | `export` | Copy credentials to clipboard instead of printing |
+| `--force` | `refresh` | Refresh even valid tokens |
 
 ---
 

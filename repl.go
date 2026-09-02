@@ -24,27 +24,23 @@ func isKnownCommand(cmd string) bool {
 }
 
 var replCommands = []string{
-	"login", "credential", "switch", "console", "dashboard",
-	"whoami", "quick", "profiles", "delete", "sessions",
-	"refresh", "export", "copy", "doctor", "prompt",
-	"init", "rename", "pin", "unpin", "group", "shell",
-	"completion", "help", "exit", "quit",
+	"login", "switch", "profiles", "export", "refresh",
+	"whoami", "console", "group", "pin", "unpin",
+	"rename", "delete", "doctor", "init",
+	"completion", "shell", "help", "exit", "quit",
 }
 
 var replCommandFlags = map[string][]string{
 	"login":      {"--profile", "--session", "--private", "--group"},
 	"switch":     {"--profile", "--session", "--private"},
 	"refresh":    {"--profile", "--session", "--private", "--force"},
-	"credential": {"--profile"},
 	"console":    {"--profile"},
 	"whoami":     {"--profile"},
 	"delete":     {"--profile"},
-	"export":     {"--profile", "--format"},
-	"copy":       {"--profile", "--format"},
-	"prompt":     {"--install"},
+	"export":     {"--profile", "--format", "--clipboard"},
 	"group":      {"--add", "--remove", "--profile"},
 	"profiles":   {"--group"},
-	"completion": {"--shell", "--install"},
+	"completion": {"--shell", "--install", "--prompt"},
 }
 
 var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process"}
