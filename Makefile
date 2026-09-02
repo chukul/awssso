@@ -44,5 +44,5 @@ minor: test
 _bump-changelog:
 	@if [ -z "$(VER)" ]; then echo "VER not set"; exit 1; fi
 	@ENTRY="\n## v$(VER) — $(DATE)\n\n### Features\n- (describe what was added)\n\n### Fixes\n- (describe what was fixed)\n"; \
-	 sed -i '' "s|^---$$|---$$ENTRY|" $(CHANGELOG); \
+	 sed -i '' "s|^---$$|---$$ENTRY|" $(CHANGELOG); \  # macOS/BSD sed; Linux: remove the ''
 	 echo "✔ CHANGELOG updated — edit the v$(VER) entry then commit"

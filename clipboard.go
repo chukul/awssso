@@ -19,11 +19,11 @@ func autoDetectFormat() ExportFormat {
 		return FormatEnv
 	}
 	for _, e := range entries {
-		name := e.Name()
+		name := strings.ToLower(e.Name())
 		switch {
 		case name == "terraform.tfvars" || strings.HasSuffix(name, ".tf"):
 			return FormatTerraform
-		case name == "Dockerfile" || name == "docker-compose.yml" || name == "docker-compose.yaml":
+		case name == "dockerfile" || name == "docker-compose.yml" || name == "docker-compose.yaml":
 			return FormatDocker
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -202,5 +203,5 @@ func parseInt(s string) (int, error) {
 
 // isWindows returns true on Windows.
 func isWindows() bool {
-	return os.Getenv("COMSPEC") != "" && os.Getenv("SHELL") == ""
+	return runtime.GOOS == "windows"
 }

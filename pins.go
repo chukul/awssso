@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -75,7 +76,7 @@ func migratePinsToGroups() {
 	if err != nil {
 		return
 	}
-	oldPath := home + "/.aws/sso/pinned_profiles.json"
+	oldPath := filepath.Join(home, ".aws", "sso", "pinned_profiles.json")
 	data, err := os.ReadFile(oldPath)
 	if err != nil {
 		return // nothing to migrate
