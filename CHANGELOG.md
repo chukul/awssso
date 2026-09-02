@@ -6,6 +6,16 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.2 — 2026-09-02
+
+### Fixes (cross-platform audit)
+- `pins.go` — migration path used hardcoded `/` separator; fixed with `filepath.Join` (would have broken on Windows)
+- `init.go` — `isWindows()` used unreliable env-var heuristic; replaced with `runtime.GOOS == "windows"` (Git Bash on Windows has `SHELL` set, so the old check returned false)
+- `prompt.go` — install snippets written to shell configs still referenced `awssso prompt` (removed command); updated to `awssso completion --prompt`
+- `clipboard.go` — Dockerfile and terraform file detection was case-sensitive; now uses `strings.ToLower` so `dockerfile`, `DOCKERFILE`, etc. all match on Linux
+
+---
+
 ## v4.0.1 — 2026-09-02
 
 ### Refactor (Pass 2)
