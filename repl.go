@@ -514,18 +514,42 @@ func runBasicREPL(binaryPath string) {
 
 				case ch == 9: // Tab
 					current := string(buf[:cursor])
-					completions := tabComplete(current)
-					if len(completions) == 1 {
-						suffix := completions[0][len(current):]
-						newBuf := append(buf[:cursor], append([]byte(suffix), buf[cursor:]...)...)
-						os.Stdout.Write([]byte(suffix))
-						buf = newBuf
-						cursor += len(suffix)
-						redraw()
-					} else if len(completions) > 1 {
+					tc := tabComplete(current)
+
+					switch {
+					case len(tc.completions) == 0:
+						// No completions — do nothing
+
+					case len(tc.completions) == 1:
+						// Exact match — auto-complete the word
+						newWord := tc.completions[0]
+						newCurrent := tc.base + newWord
+						suffix := newCurrent[len(current):]
+						if len(suffix) > 0 {
+							newBuf := append([]byte(newCurrent), buf[cursor:]...)
+							os.Stdout.Write([]byte(suffix))
+							buf = newBuf
+							cursor = len(newCurrent)
+							redraw()
+						}
+
+					default:
+						// Multiple matches — complete to common prefix, then show options
+						if len(tc.common) > len(tc.word) {
+							// Auto-complete to common prefix first
+							newCurrent := tc.base + tc.common
+							suffix := newCurrent[len(current):]
+							newBuf := append([]byte(newCurrent), buf[cursor:]...)
+							os.Stdout.Write([]byte(suffix))
+							buf = newBuf
+							cursor = len(newCurrent)
+							redraw()
+						}
+
+						// Show only the completion word (not the full command)
 						term.Restore(fd, oldState)
 						fmt.Println()
-						for _, c := range completions {
+						for _, c := range tc.completions {
 							fmt.Printf("  %s%s%s\n", Dim, c, Reset)
 						}
 						fmt.Print(prompt + string(buf))
@@ -619,18 +643,41 @@ func stripANSI(s string) string {
 	return out.String()
 }
 
-// tabComplete returns completion candidates for the current input.
-func tabComplete(current string) []string {
+// tabCompleteResult holds the parts of a tab-completion result.
+type tabCompleteResult struct {
+	base        string   // unchanged part before the word being completed
+	word        string   // the word being completed (will be replaced)
+	completions []string // possible completions for word
+	common      string   // longest common prefix of all completions
+}
+
+// tabComplete splits current input into a base + word being completed,
+// returns all matching completions and their common prefix.
+func tabComplete(current string) tabCompleteResult {
 	c := &replCompleter{}
 	runes := []rune(current)
 	results, length := c.Do(runes, len(runes))
-	prefix := string(runes[len(runes)-length:])
-	_ = prefix
+
+	word := string(runes[len(runes)-length:]) // the word being replaced
+	base := string(runes[:len(runes)-length]) // unchanged prefix
+
 	var completions []string
 	for _, r := range results {
-		completions = append(completions, current+string(r))
+		completions = append(completions, word+string(r))
 	}
-	return completions
+
+	// Find the longest common prefix of all completions
+	common := ""
+	if len(completions) > 0 {
+		common = completions[0]
+		for _, c := range completions[1:] {
+			for len(common) > 0 && !strings.HasPrefix(c, common) {
+				common = common[:len(common)-1]
+			}
+		}
+	}
+
+	return tabCompleteResult{base: base, word: word, completions: completions, common: common}
 }
 
 // readLine reads one byte at a time so nothing is pre-buffered and the next
