@@ -6,35 +6,25 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
-## v4.0.1 — 2026-09-02
-
-### Removed
-- `pin` and `unpin` commands removed — use `awssso group favourites --add/--remove <profile>` and `awssso profiles --group favourites` instead; any existing pinned data is preserved in `profile_groups.json` under the `favourites` tag
-
----
-
 ## v4.0.0 — 2026-09-02
 
-### Removed (command surface simplification)
-- `dashboard` — duplicated what `profiles` and the REPL already provide
-- `quick` — `profiles` + pins covers the same use case
-- `sessions` — session health info available via `doctor` and `profiles`
+### Removed
+- `dashboard`, `quick`, `sessions` — removed; covered by `profiles` and the REPL
 - `copy` — merged into `export --clipboard`
-- `prompt` — merged into `completion --prompt` (print badge) and `completion --prompt --install` (configure shell)
-- `credential` — hidden from help and completion; still works for `credential_process` entries in `~/.aws/config`
+- `prompt` — merged into `completion --prompt` and `completion --prompt --install`
+- `pin` / `unpin` — removed; use `awssso group favourites --add/--remove <profile>` instead; existing pinned data preserved in `profile_groups.json` under the `favourites` tag
+- `credential` — hidden from help; still works for `credential_process` entries in `~/.aws/config`
 
 ### Changes
-- `switch` renamed to `create` — more accurately describes the action
+- `switch` renamed to `create`
 - `export --clipboard` replaces `awssso copy`
 - `completion --prompt` replaces `awssso prompt`; use `$(awssso completion --prompt)` in PS1
-- `completion --prompt --install` replaces `awssso prompt --install`
 - Help text reorganised into Core / Management / Shell Integration sections
 - `version` / `-v` / `--version` flag added
 
-### Refactor (Pass 2)
-- `pin`/`unpin` now use the groups system internally — pins stored as `favourites` group tag; `pinned_profiles.json` auto-migrated and no longer created
-- Token status check (`profileTokenStatus`) used consistently in all profile-list displays — ~75 lines of duplicated inline token-read code removed
-- AWS config cached for REPL prompt redraws — `replPrompt()` was re-parsing all profiles on every keystroke; now loaded once and invalidated after each command
+### Refactor
+- Token status check (`profileTokenStatus`) used consistently — removed ~75 lines of duplicated inline token-read code
+- AWS config cached for REPL prompt redraws
 
 ### Fixes (cross-platform)
 - `pins.go` — hardcoded `/` path separator replaced with `filepath.Join` (Windows fix)
