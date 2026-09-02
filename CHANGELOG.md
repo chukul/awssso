@@ -6,6 +6,13 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.3 — 2026-09-02
+
+### Changes
+- `switch` command renamed to `create` — better reflects what it does (pick an account/role and create a profile entry)
+
+---
+
 ## v4.0.2 — 2026-09-02
 
 ### Fixes (cross-platform audit)

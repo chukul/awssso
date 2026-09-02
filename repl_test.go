@@ -31,7 +31,7 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestIsKnownCommand(t *testing.T) {
-	known := []string{"login", "switch", "export", "profiles", "doctor", "group", "pin", "unpin"}
+	known := []string{"login", "create", "export", "profiles", "doctor", "group", "pin", "unpin"}
 	for _, cmd := range known {
 		if !isKnownCommand(cmd) {
 			t.Errorf("expected %q to be a known command", cmd)

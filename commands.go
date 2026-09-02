@@ -305,7 +305,7 @@ func loadProfile(config *AWSConfig, profileName string) (*AWSProfile, error) {
 	}
 	if profile.SSOAccountID == "" || profile.SSORoleName == "" {
 		printError(fmt.Sprintf("Profile %q is missing account/role configuration", profileName))
-		printInfo(fmt.Sprintf("Run: awssso switch --profile %s to configure", profileName))
+		printInfo(fmt.Sprintf("Run: awssso create --profile %s to configure", profileName))
 		return nil, fmt.Errorf("incomplete profile")
 	}
 	return profile, nil
@@ -570,7 +570,7 @@ func resolveCredentials(ctx context.Context, profileName string, config *AWSConf
 		// Ask before making any permanent change to the profile
 		answer, _ := readlineInput(fmt.Sprintf("%s?%s Configure it now? (Y/n): ", Yellow, Reset))
 		if strings.ToLower(strings.TrimSpace(answer)) == "n" {
-			printInfo("Skipped. Run: awssso switch --profile " + profileName)
+			printInfo("Skipped. Run: awssso create --profile " + profileName)
 			return nil, nil, fmt.Errorf("incomplete profile")
 		}
 		fmt.Println()
@@ -1250,7 +1250,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 
 	if len(allRows) == 0 {
 		printWarning("No AWS profiles with SSO configuration found")
-		printInfo("Run 'awssso switch' to create one")
+		printInfo("Run 'awssso create' to create one")
 		return ""
 	}
 
@@ -1446,7 +1446,7 @@ func runRefresh(profileName string, sessionName string, extraSessions []string, 
 func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, private bool) {
 	if len(config.Sessions) == 0 {
 		printWarning("No SSO sessions found in ~/.aws/config")
-		printInfo("Run 'awssso switch' or 'awssso login' to create one")
+		printInfo("Run 'awssso create' or 'awssso login' to create one")
 		return
 	}
 
@@ -2079,7 +2079,7 @@ func runProfiles() {
 
 	if len(config.Profiles) == 0 {
 		printWarning("No AWS profiles found in ~/.aws/config")
-		printInfo("Run 'awssso switch' to create one")
+		printInfo("Run 'awssso create' to create one")
 		return
 	}
 
@@ -2587,7 +2587,7 @@ func runSessions() {
 
 	if len(config.Sessions) == 0 {
 		printWarning("No SSO sessions found in ~/.aws/config")
-		printInfo("Sessions are created automatically when you run 'awssso switch' or 'awssso login'")
+		printInfo("Sessions are created automatically when you run 'awssso create' or 'awssso login'")
 		printInfo("You can also add them manually:")
 		fmt.Fprintf(os.Stderr, "\n  %s[sso-session my-session]%s\n", Dim, Reset)
 		fmt.Fprintf(os.Stderr, "  %ssso_start_url = https://d-123.awsapps.com/start/%s\n", Dim, Reset)

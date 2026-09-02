@@ -62,7 +62,7 @@ go build -o awssso.exe .
 | Command | Description |
 |---------|-------------|
 | `login` | Authenticate via AWS SSO (`--group`, `--session`, `--private`) |
-| `switch` | Pick an account/role and create a profile |
+| `create` | Pick an account/role and create a profile |
 | `profiles` | List and activate profiles (`--group <tag>` to filter) |
 | `export` | Get credentials (`--format`, `--clipboard`) |
 | `refresh` | Refresh sessions — interactive picker or `--session` |
@@ -96,8 +96,8 @@ go build -o awssso.exe .
 |------|-----------|-------------|
 | `--profile <name>` | Most commands | AWS profile name (defaults to `$AWS_PROFILE` or `default`) |
 | `--group <tag>` | `login`, `profiles` | Target a profile group |
-| `--session <name>` | `login`, `switch`, `refresh` | Target a specific SSO session |
-| `--private` | `login`, `switch`, `refresh` | Open browser in incognito/InPrivate mode |
+| `--session <name>` | `login`, `create`, `refresh` | Target a specific SSO session |
+| `--private` | `login`, `create`, `refresh` | Open browser in incognito/InPrivate mode |
 | `--format <fmt>` | `export` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
 | `--clipboard` | `export` | Copy credentials to clipboard instead of printing |
 | `--force` | `refresh` | Refresh even valid tokens |
@@ -119,7 +119,7 @@ awssso whoami
 export AWS_PROFILE="my-profile"
 
 # 4. Switch to a different account/role
-awssso switch
+awssso create
 
 # 5. Export credentials for Terraform
 awssso export --profile prod --format terraform
@@ -141,7 +141,7 @@ awssso whoami
 $env:AWS_PROFILE = "my-profile"
 
 # 4. Switch to a different account/role
-awssso switch
+awssso create
 
 # 5. Export credentials for Terraform
 awssso export --profile prod --format terraform
@@ -181,7 +181,7 @@ sso_role_name = AdministratorAccess
 region = eu-west-1
 ```
 
-When creating profiles via `switch` or `login`, inline SSO is automatically converted to `sso-session` format.
+When creating profiles via `create` or `login`, inline SSO is automatically converted to `sso-session` format.
 
 ### Using as `credential_process`
 
@@ -203,7 +203,7 @@ Tokens are auto-refreshed transparently. No manual login needed after initial se
 
 ## Activating a Profile
 
-After `awssso profiles` or `awssso switch`, activate the selected profile in your shell:
+After `awssso profiles` or `awssso create`, activate the selected profile in your shell:
 
 ### macOS / Linux
 
@@ -500,7 +500,7 @@ awssso › profiles
 awssso › exit
 ```
 
-All commands work exactly as normal, including interactive ones like `switch`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
+All commands work exactly as normal, including interactive ones like `create`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
 
 > **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names · `Ctrl+R` searches history · `Ctrl+C` clears the current line · `Ctrl+D` exits.
 

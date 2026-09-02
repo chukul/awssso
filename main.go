@@ -19,10 +19,10 @@ func main() {
 	credCmd := flag.NewFlagSet("credential", flag.ExitOnError)
 	credProfile := credCmd.String("profile", "", "AWS profile name")
 
-	switchCmd := flag.NewFlagSet("switch", flag.ExitOnError)
-	switchProfile := switchCmd.String("profile", "", "AWS profile name")
-	switchSession := switchCmd.String("session", "", "SSO session name")
-	switchPrivate := switchCmd.Bool("private", false, "Open browser in incognito/InPrivate mode")
+	createCmd := flag.NewFlagSet("create", flag.ExitOnError)
+	createProfile := createCmd.String("profile", "", "AWS profile name")
+	createSession := createCmd.String("session", "", "SSO session name")
+	createPrivate := createCmd.Bool("private", false, "Open browser in incognito/InPrivate mode")
 
 	consoleCmd := flag.NewFlagSet("console", flag.ExitOnError)
 	consoleProfile := consoleCmd.String("profile", "", "AWS profile name")
@@ -79,9 +79,9 @@ func main() {
 		// Hidden — used by credential_process in ~/.aws/config, not advertised to users
 		_ = credCmd.Parse(os.Args[2:])
 		runCredential(*credProfile)
-	case "switch":
-		_ = switchCmd.Parse(os.Args[2:])
-		runSwitch(*switchProfile, *switchSession, *switchPrivate)
+	case "create":
+		_ = createCmd.Parse(os.Args[2:])
+		runSwitch(*createProfile, *createSession, *createPrivate)
 	case "console":
 		_ = consoleCmd.Parse(os.Args[2:])
 		runConsole(*consoleProfile)
@@ -178,7 +178,7 @@ func printUsage() {
 
 	fmt.Fprintf(os.Stderr, "%sCORE COMMANDS:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %slogin%s       Authenticate via AWS SSO and cache credentials\n", Cyan, Reset)
-	fmt.Fprintf(os.Stderr, "  %sswitch%s      Interactively select account/role and create profile\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %screate%s      Pick an account/role and create a profile\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sprofiles%s    List profiles and set one as active (AWS_PROFILE)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sexport%s      Get credentials (--format, --clipboard)\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %srefresh%s     Refresh expired SSO tokens\n", Cyan, Reset)

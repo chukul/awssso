@@ -24,7 +24,7 @@ func isKnownCommand(cmd string) bool {
 }
 
 var replCommands = []string{
-	"login", "switch", "profiles", "export", "refresh",
+	"login", "create", "profiles", "export", "refresh",
 	"whoami", "console", "group", "pin", "unpin",
 	"rename", "delete", "doctor", "init",
 	"completion", "shell", "help", "exit", "quit",
@@ -32,7 +32,7 @@ var replCommands = []string{
 
 var replCommandFlags = map[string][]string{
 	"login":      {"--profile", "--session", "--private", "--group"},
-	"switch":     {"--profile", "--session", "--private"},
+	"create":     {"--profile", "--session", "--private"},
 	"refresh":    {"--profile", "--session", "--private", "--force"},
 	"console":    {"--profile"},
 	"whoami":     {"--profile"},
@@ -115,7 +115,7 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 			return insertableCompletions(formatCandidates(), prefix)
 		}
 
-	case "login", "switch":
+	case "login", "create":
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}

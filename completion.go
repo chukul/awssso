@@ -28,7 +28,7 @@ _awssso_commands() {
   local -a commands
   commands=(
     'login:Authenticate via AWS SSO'
-    'switch:Interactively select account/role'
+    'create:Pick an account/role and create a profile'
     'profiles:List profiles and activate one'
     'export:Export credentials (--format, --clipboard)'
     'refresh:Refresh expired SSO tokens'
@@ -60,7 +60,7 @@ _awssso() {
     subcommand)
       curcontext="${curcontext%:*:*}:awssso-${line[1]}:"
       case $line[1] in
-        login|switch)
+        login|create)
           _arguments \
             '--profile[AWS profile name]:profile:_awssso_profiles' \
             '--session[SSO session name]:session:_awssso_sessions' \
@@ -101,7 +101,7 @@ const bashCompletion = `_awssso() {
   local cur prev words cword
   _init_completion || return
 
-  local commands="login switch profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help"
+  local commands="login create profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help"
 
   if [[ $cword -eq 1 ]]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -130,7 +130,7 @@ const bashCompletion = `_awssso() {
   esac
 
   case "$cmd" in
-    login|switch)
+    login|create)
       COMPREPLY=($(compgen -W "--profile --session --private" -- "$cur")) ;;
     refresh)
       COMPREPLY=($(compgen -W "--profile --session --private --force" -- "$cur")) ;;
@@ -151,13 +151,13 @@ const powershellCompletion = `# awssso PowerShell tab completion
 Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
-    $commands = @('login','switch','profiles','export','refresh','whoami','console',
+    $commands = @('login','create','profiles','export','refresh','whoami','console',
                   'group','pin','unpin','rename','delete','doctor','init',
                   'completion','shell','help')
 
     $flagMap = @{
         'login'      = @('--profile','--session','--private')
-        'switch'     = @('--profile','--session','--private')
+        'create'     = @('--profile','--session','--private')
         'refresh'    = @('--profile','--session','--private','--force')
         'credential' = @('--profile')
         'console'    = @('--profile')
@@ -217,7 +217,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
 `
 
 const fishCompletion = `# awssso fish shell completions
-set -l commands login switch profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help
+set -l commands login create profiles export refresh whoami console group pin unpin rename delete doctor init completion shell help
 
 # Subcommands (only shown before a subcommand is typed)
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a login      -d "Authenticate via AWS SSO"
@@ -237,17 +237,17 @@ complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a help    
 
 # --profile (dynamic, reads ~/.aws/config)
 complete -c awssso -l profile -r -d "AWS profile name" \
-  -n "__fish_seen_subcommand_from login switch credential console whoami delete refresh export" \
+  -n "__fish_seen_subcommand_from login create credential console whoami delete refresh export" \
   -a "(awssso __list-profiles 2>/dev/null)"
 
 # --session (dynamic, reads ~/.aws/config)
 complete -c awssso -l session -r -d "SSO session name" \
-  -n "__fish_seen_subcommand_from login switch refresh" \
+  -n "__fish_seen_subcommand_from login create refresh" \
   -a "(awssso __list-sessions 2>/dev/null)"
 
 # --private
 complete -c awssso -l private -d "Open browser in incognito/InPrivate mode" \
-  -n "__fish_seen_subcommand_from login switch refresh"
+  -n "__fish_seen_subcommand_from login create refresh"
 
 # --force
 complete -c awssso -l force -d "Refresh even valid tokens" \
