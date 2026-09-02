@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -31,10 +32,22 @@ func initTerminal() {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	setConsoleMode := kernel32.NewProc("SetConsoleMode")
 	getStdHandle := kernel32.NewProc("GetStdHandle")
+	getConsoleMode := kernel32.NewProc("GetConsoleMode")
 
-	handle, _, _ := getStdHandle.Call(uintptr(0xfffffff5))
-	if handle != 0 {
-		setConsoleMode.Call(handle, uintptr(0x0001|0x0002|0x0004))
+	// Enable ANSI on stdout: ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+	outHandle, _, _ := getStdHandle.Call(uintptr(0xfffffff5)) // STD_OUTPUT_HANDLE = -11
+	if outHandle != 0 {
+		setConsoleMode.Call(outHandle, uintptr(0x0001|0x0002|0x0004))
+	}
+
+	// Enable VT input on stdin so arrow keys produce ESC sequences that
+	// golang.org/x/term raw mode can read. Without this, arrow keys produce
+	// Windows extended codes (0xE0 prefix) which the REPL key handler never matches.
+	inHandle, _, _ := getStdHandle.Call(uintptr(0xfffffff6)) // STD_INPUT_HANDLE = -10
+	if inHandle != 0 {
+		var mode uint32
+		getConsoleMode.Call(inHandle, uintptr(unsafe.Pointer(&mode)))
+		setConsoleMode.Call(inHandle, uintptr(mode)|0x0200) // add ENABLE_VIRTUAL_TERMINAL_INPUT
 	}
 }
 

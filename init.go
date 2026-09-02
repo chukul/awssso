@@ -120,7 +120,7 @@ func runInit() {
 	spinner.Stop(true, fmt.Sprintf("Found %d account(s)", len(accounts)))
 
 	scanner := newStdinScanner()
-	selectedAccount := selectAccount(scanner, accounts)
+	selectedAccount := selectAccount(accounts)
 	acctID := *selectedAccount.AccountId
 	acctName := *selectedAccount.AccountName
 
