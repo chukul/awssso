@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/peterh/liner"
 )
 
 // ── Command / flag metadata ───────────────────────────────────────────────────
@@ -340,10 +343,92 @@ func runREPL() {
 		os.Exit(1)
 	}
 
-	// Use the basic REPL — readline's raw-mode terminal control was being
-	// killed by macOS on some systems. The basic loop is stable on all platforms.
-	// Tab completion works through the shell's installed completion scripts.
-	runBasicREPL(binaryPath)
+	home, _ := homeDir()
+	historyFile := filepath.Join(home, ".aws", "awssso_history")
+
+	l := liner.NewLiner()
+	defer func() {
+		l.Close()
+	}()
+
+	// Tab completion
+	l.SetCompleter(func(line string) []string {
+		tokens := parseArgs(line)
+		endsWithSpace := len(line) > 0 && (line[len(line)-1] == ' ' || line[len(line)-1] == '\t')
+		c := &replCompleter{}
+		results, _ := c.Do([]rune(line), len([]rune(line)))
+		var completions []string
+		for _, r := range results {
+			suffix := string(r)
+			_ = endsWithSpace
+			_ = tokens
+			completions = append(completions, line+suffix)
+		}
+		return completions
+	})
+
+	// Load history
+	if f, err := os.Open(historyFile); err == nil {
+		l.ReadHistory(f)
+		f.Close()
+	}
+
+	printHeader("AWSSSO INTERACTIVE SHELL")
+	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
+		Dim, Reset+Bold, Reset+Dim, Reset)
+	fmt.Printf("  %sTab: complete   ↑↓: history   Ctrl+D / exit: quit%s\n\n",
+		Dim, Reset)
+
+	for {
+		prompt := replPrompt() + " "
+		line, err := l.Prompt(prompt)
+		if err == liner.ErrPromptAborted || err != nil {
+			fmt.Println()
+			printInfo("Goodbye!")
+			break
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if line == "exit" || line == "quit" || line == "q" {
+			printInfo("Goodbye!")
+			break
+		}
+
+		l.AppendHistory(line)
+
+		args := parseArgs(line)
+		if len(args) == 0 {
+			continue
+		}
+
+		if !isKnownCommand(args[0]) {
+			printError(fmt.Sprintf("Unknown command %q", args[0]))
+			printInfo(fmt.Sprintf("Available: %s", strings.Join(replCommands[:len(replCommands)-2], ", ")))
+			fmt.Println()
+			continue
+		}
+
+		cmd := exec.Command(binaryPath, args...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+
+		if active := readActiveProfile(); active != "" && active != os.Getenv("AWS_PROFILE") {
+			os.Setenv("AWS_PROFILE", active)
+		}
+		cachedReplConfig = nil
+		fmt.Println()
+	}
+
+	// Save history
+	if f, err := os.Create(historyFile); err == nil {
+		l.WriteHistory(f)
+		f.Close()
+	}
 }
 
 // runBasicREPL is the stable cross-platform REPL loop.

@@ -34,7 +34,7 @@ One version entry is added per merge to `main`, written only when explicitly req
 - `init.go` — `isWindows()` now uses `runtime.GOOS` instead of env-var heuristic (was unreliable under Git Bash)
 - `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
 - `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
-- REPL no longer killed on macOS — `chzyer/readline` goroutines were taking raw terminal control and macOS was sending SIGKILL; replaced with a stable basic loop; tab completion works via installed shell scripts
+- REPL no longer killed on macOS — `chzyer/readline` goroutines caused SIGKILL; replaced with `peterh/liner` which provides tab completion and ↑↓ history without the raw-mode goroutine issue
 
 ---
 
