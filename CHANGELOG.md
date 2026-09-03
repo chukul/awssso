@@ -6,6 +6,39 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.0.0 — 2026-09-02
+
+### Removed
+- `dashboard`, `quick`, `sessions` — removed; covered by `profiles` and the REPL
+- `copy` — merged into `export --clipboard`
+- `prompt` — merged into `completion --prompt` and `completion --prompt --install`
+- `pin` / `unpin` — removed; use `awssso group favourites --add/--remove <profile>` instead; existing pinned data preserved in `profile_groups.json` under the `favourites` tag
+- `credential` — hidden from help; still works for `credential_process` entries in `~/.aws/config`
+
+### Changes
+- `switch` renamed to `create`
+- `export --clipboard` replaces `awssso copy`
+- `completion --prompt` replaces `awssso prompt`; use `$(awssso completion --prompt)` in PS1
+- Help text reorganised into Core / Management / Shell Integration sections
+- `version` / `-v` / `--version` flag added
+
+### Refactor
+- Token status check (`profileTokenStatus`) used consistently — removed ~75 lines of duplicated inline token-read code
+- AWS config cached for REPL prompt redraws
+
+### Fixes (cross-platform)
+- `pins.go` — hardcoded `/` path separator replaced with `filepath.Join` (Windows fix)
+- `init.go` — `isWindows()` now uses `runtime.GOOS` instead of env-var heuristic (was unreliable under Git Bash)
+- `prompt.go` — install snippets updated from `awssso prompt` to `awssso completion --prompt`
+- `clipboard.go` — format auto-detection now case-insensitive (`dockerfile`, `DOCKERFILE` both match on Linux)
+- REPL full line editing: ←→ cursor, Home/End/Del, copy/paste, ↑↓ history, Tab completion all work with no setup; Tab now shows only the word being completed (profile names, not full commands), auto-completes to common prefix across multiple matches, and shows flags before values; implemented with `golang.org/x/term` raw-mode (no goroutines)
+- **Windows REPL arrow keys** — `initTerminal` now enables `ENABLE_VIRTUAL_TERMINAL_INPUT` on stdin so arrow keys produce ESC sequences; without this they produced Windows extended codes (`0xE0` prefix) that the key handler never matched
+- **Fish completion** — subcommand list corrected to v4 command surface: removed stale `switch`, `dashboard`, `quick`, `sessions`; added `create`, `group`, `rename`, `doctor`, `init`, `completion`; added missing `--clipboard`, `--shell`, `--install`, `--prompt`, `--group` flag completions
+- **PowerShell completion** — `export` was missing `--clipboard`; `completion` was missing `--prompt`
+- **Zsh completion** — two spurious blank entries removed from the command list
+
+---
+
 ## v3.0.4 — 2026-08-24
 
 ### Features

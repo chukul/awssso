@@ -2,14 +2,12 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/chzyer/readline"
+	"golang.org/x/term"
 )
 
 // ── Command / flag metadata ───────────────────────────────────────────────────
@@ -24,27 +22,23 @@ func isKnownCommand(cmd string) bool {
 }
 
 var replCommands = []string{
-	"login", "credential", "switch", "console", "dashboard",
-	"whoami", "quick", "profiles", "delete", "sessions",
-	"refresh", "export", "copy", "doctor", "prompt",
-	"init", "rename", "pin", "unpin", "group", "shell",
-	"completion", "help", "exit", "quit",
+	"login", "create", "profiles", "export", "refresh",
+	"whoami", "console", "group",
+	"rename", "delete", "doctor", "init",
+	"completion", "shell", "help", "exit", "quit",
 }
 
 var replCommandFlags = map[string][]string{
 	"login":      {"--profile", "--session", "--private", "--group"},
-	"switch":     {"--profile", "--session", "--private"},
+	"create":     {"--profile", "--session", "--private"},
 	"refresh":    {"--profile", "--session", "--private", "--force"},
-	"credential": {"--profile"},
 	"console":    {"--profile"},
 	"whoami":     {"--profile"},
 	"delete":     {"--profile"},
-	"export":     {"--profile", "--format"},
-	"copy":       {"--profile", "--format"},
-	"prompt":     {"--install"},
+	"export":     {"--profile", "--format", "--clipboard"},
 	"group":      {"--add", "--remove", "--profile"},
 	"profiles":   {"--group"},
-	"completion": {"--shell", "--install"},
+	"completion": {"--shell", "--install", "--prompt"},
 }
 
 var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process"}
@@ -112,24 +106,37 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 
 	switch cmd {
 	case "export":
-		if !typed["--profile"] {
+		if !typed["--profile"] && !typed["--format"] && !typed["--clipboard"] && prefix == "" {
+			// No flags typed yet — show the flags, not 22 profiles
+			return filterComplete(replCommandFlags["export"], "")
+		}
+		if !typed["--profile"] && (typed["--format"] || typed["--clipboard"] || prefix != "") {
 			return insertableCompletions(profileCandidates(), prefix)
 		}
 		if !typed["--format"] {
 			return insertableCompletions(formatCandidates(), prefix)
 		}
 
-	case "login", "switch":
+	case "login", "create":
+		if !typed["--profile"] && !typed["--session"] && prefix == "" {
+			return filterComplete(replCommandFlags[cmd], "")
+		}
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}
 
 	case "console", "whoami", "credential", "delete":
+		if !typed["--profile"] && prefix == "" {
+			return filterComplete([]string{"--profile"}, "")
+		}
 		if !typed["--profile"] {
 			return insertableCompletions(profileCandidates(), prefix)
 		}
 
 	case "refresh":
+		if !typed["--profile"] && !typed["--session"] && prefix == "" {
+			return filterComplete(replCommandFlags["refresh"], "")
+		}
 		if !typed["--profile"] && !typed["--session"] {
 			return insertableCompletions(append(profileCandidates(), sessionCandidates()...), prefix)
 		}
@@ -154,24 +161,6 @@ func smartNextArg(cmd string, tokens []string, prefix string) ([][]rune, int) {
 			return filterComplete(allGroupTags(), prefix)
 		}
 
-	case "pin":
-		// Only show profiles that are not yet pinned
-		pinned := loadPins()
-		pinnedSet := make(map[string]bool, len(pinned))
-		for _, p := range pinned {
-			pinnedSet[p] = true
-		}
-		var unpinned []string
-		for _, n := range loadProfileNames() {
-			if !pinnedSet[n] {
-				unpinned = append(unpinned, n)
-			}
-		}
-		return filterComplete(unpinned, prefix)
-
-	case "unpin":
-		// Only show profiles that are currently pinned
-		return filterComplete(loadPins(), prefix)
 	}
 
 	return filterComplete(remainingFlagsFor(cmd, tokens, prefix), prefix)
@@ -293,6 +282,10 @@ func loadSessionNames() []string {
 	return names
 }
 
+// cachedReplConfig is loaded once at REPL startup and reused for prompts.
+// Avoids parsing ~/.aws/config on every prompt redraw.
+var cachedReplConfig *AWSConfig
+
 // replPrompt builds the readline prompt, embedding the active AWS_PROFILE with
 // its environment colour. When < 15 min remain on the token it shows a warning.
 func replPrompt() string {
@@ -308,10 +301,14 @@ func replPrompt() string {
 
 // tokenBadge returns the coloured profile badge, appending a time warning when
 // the SSO token has less than 15 minutes remaining.
+// Uses cachedReplConfig to avoid re-parsing ~/.aws/config on every prompt.
 func tokenBadge(profile, color string) string {
 	suffix := ""
-	config, err := loadAWSConfig()
-	if err == nil {
+	if cachedReplConfig == nil {
+		cachedReplConfig, _ = loadAWSConfig()
+	}
+	config := cachedReplConfig
+	if config != nil {
 		if p, ok := config.Profiles[profile]; ok {
 			if tokenPath, pathErr := getSSOTokenPath(p, config); pathErr == nil {
 				if token, readErr := readSSOToken(tokenPath); readErr == nil {
@@ -339,59 +336,245 @@ func runREPL() {
 		printError("Could not determine binary path")
 		os.Exit(1)
 	}
+	runBasicREPL(binaryPath)
+}
 
-
-	home, _ := homeDir()
-	historyFile := filepath.Join(home, ".aws", "awssso_history")
-
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            replPrompt(),
-		HistoryFile:       historyFile,
-		AutoComplete:      &replCompleter{},
-		InterruptPrompt:   "^C",
-		EOFPrompt:         "exit",
-		HistorySearchFold: true,
-	})
-	if err != nil {
-		// readline unavailable (e.g. non-interactive pipe) — fall back to basic loop
-		runBasicREPL(binaryPath)
-		return
-	}
-	defer rl.Close()
-
+// runBasicREPL runs the REPL. If the terminal supports raw mode it enables Tab
+// completion and arrow-key history. Falls back to plain line reading otherwise.
+func runBasicREPL(binaryPath string) {
 	printHeader("AWSSSO INTERACTIVE SHELL")
 	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
 		Dim, Reset+Bold, Reset+Dim, Reset)
-	fmt.Printf("  %s↑↓  history   Tab  complete   Ctrl+R  search   Ctrl+D / exit  quit%s\n\n",
+	fmt.Printf("  %sTab: complete   ↑↓: history   Ctrl+D / exit: quit%s\n\n",
 		Dim, Reset)
 
-	for {
-		rl.SetPrompt(replPrompt())
-		line, err := rl.Readline()
+	fd := int(os.Stdin.Fd())
+	isRaw := term.IsTerminal(fd)
 
-		if err == readline.ErrInterrupt {
-			// Ctrl+C on non-empty line: clear and re-prompt
-			continue
+	// History buffer (in-memory for this session)
+	var history []string
+	historyIdx := -1
+
+	readInput := func(prompt string) (string, bool) {
+		fmt.Print(prompt)
+		if !isRaw {
+			line, ok := readLine()
+			return strings.TrimSpace(line), ok
 		}
-		if err == io.EOF {
-			// Ctrl+D: exit
-			fmt.Println()
+
+		oldState, err := term.MakeRaw(fd)
+		if err != nil {
+			isRaw = false
+			line, ok := readLine()
+			return strings.TrimSpace(line), ok
+		}
+
+		var buf []byte   // line content
+		cursor := 0      // insert position within buf
+		historyIdx = len(history)
+
+		// redraw redraws from cursor to end of line and repositions cursor.
+		redraw := func() {
+			// Erase from cursor to end, print tail, move cursor back
+			tail := buf[cursor:]
+			os.Stdout.Write([]byte("\033[K")) // clear to EOL
+			os.Stdout.Write(tail)
+			// Move cursor left by len(tail)
+			if len(tail) > 0 {
+				fmt.Printf("\033[%dD", len(tail))
+			}
+		}
+
+		// replaceContent replaces the whole line with new content.
+		replaceContent := func(newBuf []byte) {
+			// Move to start, clear line, print new content
+			if cursor > 0 {
+				fmt.Printf("\033[%dD", cursor)
+			}
+			fmt.Print("\033[K")
+			os.Stdout.Write(newBuf)
+			buf = newBuf
+			cursor = len(buf)
+		}
+
+		b := make([]byte, 32) // larger buffer to catch paste + escape seqs
+
+		for {
+			n, err := os.Stdin.Read(b)
+			if err != nil || n == 0 {
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return "", false
+			}
+
+			i := 0
+			for i < n {
+				ch := b[i]
+
+				switch {
+				case ch == '\r' || ch == '\n': // Enter
+					term.Restore(fd, oldState)
+					fmt.Println()
+					return strings.TrimSpace(string(buf)), true
+
+				case ch == 4: // Ctrl+D
+					term.Restore(fd, oldState)
+					fmt.Println()
+					if len(buf) == 0 {
+						return "", false
+					}
+					return strings.TrimSpace(string(buf)), true
+
+				case ch == 3: // Ctrl+C
+					term.Restore(fd, oldState)
+					fmt.Println("^C")
+					return "", true
+
+				case ch == 1: // Ctrl+A — go to start
+					if cursor > 0 {
+						fmt.Printf("\033[%dD", cursor)
+						cursor = 0
+					}
+
+				case ch == 5: // Ctrl+E — go to end
+					if cursor < len(buf) {
+						fmt.Printf("\033[%dC", len(buf)-cursor)
+						cursor = len(buf)
+					}
+
+				case ch == 127 || ch == 8: // Backspace
+					if cursor > 0 {
+						buf = append(buf[:cursor-1], buf[cursor:]...)
+						cursor--
+						fmt.Print("\b")
+						redraw()
+					}
+
+				case ch == 27 && i+2 < n && b[i+1] == '[': // Escape sequence
+					code := b[i+2]
+					i += 2
+					switch code {
+					case 'D': // Left arrow
+						if cursor > 0 {
+							cursor--
+							fmt.Print("\033[D")
+						}
+					case 'C': // Right arrow
+						if cursor < len(buf) {
+							cursor++
+							fmt.Print("\033[C")
+						}
+					case 'A': // Up arrow — history previous
+						if historyIdx > 0 {
+							historyIdx--
+							replaceContent([]byte(history[historyIdx]))
+						}
+					case 'B': // Down arrow — history next
+						if historyIdx < len(history)-1 {
+							historyIdx++
+							replaceContent([]byte(history[historyIdx]))
+						} else {
+							historyIdx = len(history)
+							replaceContent(nil)
+						}
+					case '1', '7': // Home (^[[1~ or ^[[7~)
+						if cursor > 0 {
+							fmt.Printf("\033[%dD", cursor)
+							cursor = 0
+						}
+					case '4', '8': // End (^[[4~ or ^[[8~)
+						if cursor < len(buf) {
+							fmt.Printf("\033[%dC", len(buf)-cursor)
+							cursor = len(buf)
+						}
+					case '3': // Delete key (^[[3~)
+						if cursor < len(buf) {
+							buf = append(buf[:cursor], buf[cursor+1:]...)
+							redraw()
+						}
+					}
+
+				case ch == 9: // Tab
+					current := string(buf[:cursor])
+					tc := tabComplete(current)
+
+					switch {
+					case len(tc.completions) == 0:
+						// No completions — do nothing
+
+					case len(tc.completions) == 1:
+						// Exact match — auto-complete the word
+						newWord := tc.completions[0]
+						newCurrent := tc.base + newWord
+						suffix := newCurrent[len(current):]
+						if len(suffix) > 0 {
+							newBuf := append([]byte(newCurrent), buf[cursor:]...)
+							os.Stdout.Write([]byte(suffix))
+							buf = newBuf
+							cursor = len(newCurrent)
+							redraw()
+						}
+
+					default:
+						// Multiple matches — complete to common prefix, then show options
+						if len(tc.common) > len(tc.word) {
+							// Auto-complete to common prefix first
+							newCurrent := tc.base + tc.common
+							suffix := newCurrent[len(current):]
+							newBuf := append([]byte(newCurrent), buf[cursor:]...)
+							os.Stdout.Write([]byte(suffix))
+							buf = newBuf
+							cursor = len(newCurrent)
+							redraw()
+						}
+
+						// Show only the completion word (not the full command)
+						term.Restore(fd, oldState)
+						fmt.Println()
+						for _, c := range tc.completions {
+							fmt.Printf("  %s%s%s\n", Dim, c, Reset)
+						}
+						fmt.Print(prompt + string(buf))
+						if cursor < len(buf) {
+							fmt.Printf("\033[%dD", len(buf)-cursor)
+						}
+						oldState, _ = term.MakeRaw(fd)
+					}
+
+				default:
+					if ch >= 32 { // Printable — handles paste too
+						// Insert at cursor
+						newBuf := make([]byte, len(buf)+1)
+						copy(newBuf, buf[:cursor])
+						newBuf[cursor] = ch
+						copy(newBuf[cursor+1:], buf[cursor:])
+						buf = newBuf
+						cursor++
+						os.Stdout.Write([]byte{ch})
+						redraw()
+					}
+				}
+				i++
+			}
+		}
+	}
+
+	for {
+		line, ok := readInput(replPrompt())
+		if !ok {
 			printInfo("Goodbye!")
 			return
 		}
-		if err != nil {
-			return
-		}
-
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-
 		if line == "exit" || line == "quit" || line == "q" {
 			printInfo("Goodbye!")
 			return
 		}
+
+		history = append(history, line)
+		historyIdx = len(history)
 
 		args := parseArgs(line)
 		if len(args) == 0 {
@@ -411,54 +594,72 @@ func runREPL() {
 		cmd.Stderr = os.Stderr
 		cmd.Run()
 
-		// Sync active profile set by subprocess back into our own environment
-		// so the REPL prompt reflects the new selection immediately.
 		if active := readActiveProfile(); active != "" && active != os.Getenv("AWS_PROFILE") {
 			os.Setenv("AWS_PROFILE", active)
 		}
-
+		cachedReplConfig = nil
 		fmt.Println()
 	}
 }
 
-// runBasicREPL is used when readline is unavailable (non-interactive stdin).
-func runBasicREPL(binaryPath string) {
-	printHeader("AWSSSO INTERACTIVE SHELL")
-	fmt.Printf("  %sType commands without the %sawssso%s prefix. Type exit to quit.%s\n\n",
-		Dim, Reset+Bold, Reset+Dim, Reset)
+// clearLine erases the current prompt+input and moves the cursor to the start.
+func clearLine(prompt, current string) {
+	total := len([]rune(stripANSI(prompt))) + len([]rune(current))
+	fmt.Print("\r" + strings.Repeat(" ", total+2) + "\r")
+	fmt.Print(prompt)
+}
 
-	for {
-		fmt.Printf("%sawssso%s › ", Cyan+Bold, Reset)
-
-		line, ok := readLine()
-		if !ok {
-			fmt.Println()
-			printInfo("Goodbye!")
-			return
+// stripANSI removes ANSI escape codes for length calculation.
+func stripANSI(s string) string {
+	var out strings.Builder
+	skip := false
+	for _, r := range s {
+		if r == 0x1b {
+			skip = true
+		} else if skip && r == 'm' {
+			skip = false
+		} else if !skip {
+			out.WriteRune(r)
 		}
-
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if line == "exit" || line == "quit" || line == "q" {
-			printInfo("Goodbye!")
-			return
-		}
-
-		args := parseArgs(line)
-		if len(args) == 0 {
-			continue
-		}
-
-		cmd := exec.Command(binaryPath, args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run()
-
-		fmt.Println()
 	}
+	return out.String()
+}
+
+// tabCompleteResult holds the parts of a tab-completion result.
+type tabCompleteResult struct {
+	base        string   // unchanged part before the word being completed
+	word        string   // the word being completed (will be replaced)
+	completions []string // possible completions for word
+	common      string   // longest common prefix of all completions
+}
+
+// tabComplete splits current input into a base + word being completed,
+// returns all matching completions and their common prefix.
+func tabComplete(current string) tabCompleteResult {
+	c := &replCompleter{}
+	runes := []rune(current)
+	results, length := c.Do(runes, len(runes))
+
+	word := string(runes[len(runes)-length:]) // the word being replaced
+	base := string(runes[:len(runes)-length]) // unchanged prefix
+
+	var completions []string
+	for _, r := range results {
+		completions = append(completions, word+string(r))
+	}
+
+	// Find the longest common prefix of all completions
+	common := ""
+	if len(completions) > 0 {
+		common = completions[0]
+		for _, c := range completions[1:] {
+			for len(common) > 0 && !strings.HasPrefix(c, common) {
+				common = common[:len(common)-1]
+			}
+		}
+	}
+
+	return tabCompleteResult{base: base, word: word, completions: completions, common: common}
 }
 
 // readLine reads one byte at a time so nothing is pre-buffered and the next

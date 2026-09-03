@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -305,7 +304,7 @@ func loadProfile(config *AWSConfig, profileName string) (*AWSProfile, error) {
 	}
 	if profile.SSOAccountID == "" || profile.SSORoleName == "" {
 		printError(fmt.Sprintf("Profile %q is missing account/role configuration", profileName))
-		printInfo(fmt.Sprintf("Run: awssso switch --profile %s to configure", profileName))
+		printInfo(fmt.Sprintf("Run: awssso create --profile %s to configure", profileName))
 		return nil, fmt.Errorf("incomplete profile")
 	}
 	return profile, nil
@@ -432,8 +431,7 @@ func runLogin(profileName string, sessionName string, private bool) {
 	profileName = getProfileName(profileName)
 	printInfo(fmt.Sprintf("Logging in with profile: %s%s%s", Bold, profileName, Reset))
 
-	scanner := bufio.NewScanner(os.Stdin)
-	profile := getOrConfigureProfile(scanner, config, profileName)
+	profile := getOrConfigureProfile(config, profileName)
 
 	startURL := resolveStartURL(profile, config)
 	ssoRegion := resolveSSORegion(profile, config, nil)
@@ -570,7 +568,7 @@ func resolveCredentials(ctx context.Context, profileName string, config *AWSConf
 		// Ask before making any permanent change to the profile
 		answer, _ := readlineInput(fmt.Sprintf("%s?%s Configure it now? (Y/n): ", Yellow, Reset))
 		if strings.ToLower(strings.TrimSpace(answer)) == "n" {
-			printInfo("Skipped. Run: awssso switch --profile " + profileName)
+			printInfo("Skipped. Run: awssso create --profile " + profileName)
 			return nil, nil, fmt.Errorf("incomplete profile")
 		}
 		fmt.Println()
@@ -676,8 +674,6 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 		os.Exit(1)
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-
 	// If --session is provided, use that session directly instead of resolving from profile.
 	// This ensures the correct identity is used to fetch accounts (multi-session support).
 	var profile *AWSProfile
@@ -705,7 +701,7 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 			Region:     session.SSORegion,
 		}
 	} else {
-		profile = getOrConfigureProfile(scanner, config, profileName)
+		profile = getOrConfigureProfile(config, profileName)
 		resolvedSessionName = profile.SSOSession
 	}
 
@@ -785,7 +781,7 @@ func runSwitch(profileName string, sessionName string, private bool, showNextSte
 		return
 	}
 
-	selectedAccount := selectAccount(scanner, accounts)
+	selectedAccount := selectAccount(accounts)
 	acctID := *selectedAccount.AccountId
 	acctName := *selectedAccount.AccountName
 
@@ -953,7 +949,7 @@ func runNextSteps(ctx context.Context, profileName string, profile *AWSProfile, 
 }
 
 // selectAccount handles the interactive account search and selection flow.
-func selectAccount(scanner *bufio.Scanner, accounts []types.AccountInfo) types.AccountInfo {
+func selectAccount(accounts []types.AccountInfo) types.AccountInfo {
 	printHeader("AVAILABLE AWS ACCOUNTS")
 	fmt.Printf("  %sTotal:%s %d accounts found. Type to search by name or ID.\n\n", Dim, Reset, len(accounts))
 
@@ -1013,7 +1009,7 @@ func selectAccount(scanner *bufio.Scanner, accounts []types.AccountInfo) types.A
 	}
 }
 
-func getOrConfigureProfile(scanner *bufio.Scanner, config *AWSConfig, profileName string) *AWSProfile {
+func getOrConfigureProfile(config *AWSConfig, profileName string) *AWSProfile {
 	profile, ok := config.Profiles[profileName]
 	if ok {
 		hasSSO := false
@@ -1234,33 +1230,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 			session = "(inline)"
 		}
 
-		status := "No SSO"
-		remaining := ""
-		if p.SSOSession != "" || p.SSOStartURL != "" {
-			mockProfile := &AWSProfile{}
-			if p.SSOSession != "" {
-				mockProfile.SSOSession = p.SSOSession
-			} else {
-				mockProfile.SSOStartURL = p.SSOStartURL
-			}
-			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-				if token, err := readSSOToken(tokenPath); err == nil {
-					if token.IsExpired() {
-						status = "Expired"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expired %s ago", formatDuration(time.Since(parsed)))
-						}
-					} else {
-						status = "Active"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("%s left", formatDuration(time.Until(parsed)))
-						}
-					}
-				} else {
-					status = "Not Logged In"
-				}
-			}
-		}
+		status, remaining := profileTokenStatus(p, config)
 
 		allRows = append(allRows, profileRow{
 			name:      name,
@@ -1276,7 +1246,7 @@ func pickProfileForConsole(config *AWSConfig) string {
 
 	if len(allRows) == 0 {
 		printWarning("No AWS profiles with SSO configuration found")
-		printInfo("Run 'awssso switch' to create one")
+		printInfo("Run 'awssso create' to create one")
 		return ""
 	}
 
@@ -1472,7 +1442,7 @@ func runRefresh(profileName string, sessionName string, extraSessions []string, 
 func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, private bool) {
 	if len(config.Sessions) == 0 {
 		printWarning("No SSO sessions found in ~/.aws/config")
-		printInfo("Run 'awssso switch' or 'awssso login' to create one")
+		printInfo("Run 'awssso create' or 'awssso login' to create one")
 		return
 	}
 
@@ -1486,24 +1456,8 @@ func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, privat
 
 	var rows []row
 	for name, sess := range config.Sessions {
-		status := "Not Logged In"
-		remaining := ""
-		mockProfile := &AWSProfile{SSOSession: name}
-		if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-			if token, err := readSSOToken(tokenPath); err == nil {
-				if token.IsExpired() {
-					status = "Expired"
-					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-						remaining = fmt.Sprintf("expired %s ago", formatDuration(time.Since(parsed)))
-					}
-				} else {
-					status = "Active"
-					if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-						remaining = fmt.Sprintf("%s remaining", formatDuration(time.Until(parsed)))
-					}
-				}
-			}
-		}
+		mock := &AWSProfile{SSOSession: name}
+		status, remaining := profileTokenStatus(mock, config)
 		rows = append(rows, row{
 			name:     name,
 			startURL: sess.SSOStartURL,
@@ -2121,7 +2075,7 @@ func runProfiles() {
 
 	if len(config.Profiles) == 0 {
 		printWarning("No AWS profiles found in ~/.aws/config")
-		printInfo("Run 'awssso switch' to create one")
+		printInfo("Run 'awssso create' to create one")
 		return
 	}
 
@@ -2143,36 +2097,11 @@ func runProfiles() {
 	allRows := []profileRow{}
 	for name, p := range config.Profiles {
 		env := detectEnvironment(p)
-		status := "No SSO"
-		remaining := ""
 		session := p.SSOSession
-
-		if p.SSOSession != "" || p.SSOStartURL != "" {
-			mockProfile := &AWSProfile{}
-			if p.SSOSession != "" {
-				mockProfile.SSOSession = p.SSOSession
-			} else {
-				mockProfile.SSOStartURL = p.SSOStartURL
-				session = "(inline)"
-			}
-			if tokenPath, err := getSSOTokenPath(mockProfile, config); err == nil {
-				if token, err := readSSOToken(tokenPath); err == nil {
-					if token.IsExpired() {
-						status = "Expired"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expired %s ago", formatDuration(time.Since(parsed)))
-						}
-					} else {
-						status = "Active"
-						if parsed, err := time.Parse(time.RFC3339, token.ExpiresAt); err == nil {
-							remaining = fmt.Sprintf("Expires in %s", formatDuration(time.Until(parsed)))
-						}
-					}
-				} else {
-					status = "Not Logged In"
-				}
-			}
+		if session == "" && p.SSOStartURL != "" {
+			session = "(inline)"
 		}
+		status, remaining := profileTokenStatus(p, config)
 
 		allRows = append(allRows, profileRow{
 			name:      name,
@@ -2482,95 +2411,7 @@ func setProfileScript(profileName string) {
 	}
 }
 
-func runQuick() {
-	config, err := loadAWSConfig()
-	if err != nil {
-		printError(fmt.Sprintf("Failed to load AWS config: %v", err))
-		os.Exit(1)
-	}
-
-	recent, err := getRecentProfiles()
-	if err != nil {
-		printError(fmt.Sprintf("Failed to load recent profiles: %v", err))
-		os.Exit(1)
-	}
-
-	if len(recent) == 0 {
-		printInfo("No recent profiles found")
-		printInfo("Use profiles with 'login', 'credential', 'switch', or 'console' commands to build history")
-		return
-	}
-
-	printHeader("RECENT PROFILES")
-
-	validProfiles := []RecentProfile{}
-	for i, rp := range recent {
-		if _, ok := config.Profiles[rp.Name]; !ok {
-			continue
-		}
-		validProfiles = append(validProfiles, rp)
-
-		env := detectEnvironment(config.Profiles[rp.Name])
-		envColor := getEnvironmentColor(env)
-		envSymbol := getEnvironmentSymbol(env)
-
-		fmt.Printf("  %s[%d]%s %s %s%s%-20s%s %s%s%s %s(%s)%s\n",
-			Cyan, i+1, Reset,
-			envSymbol,
-			Bold, envColor, rp.Name, Reset,
-			Dim, rp.RoleName, Reset,
-			Dim, formatTimeSince(rp.Timestamp), Reset)
-	}
-
-	if len(validProfiles) == 0 {
-		printWarning("No valid recent profiles found")
-		return
-	}
-
-	fmt.Println()
-
-	var choice int
-	for {
-		text, ok := readlineInput(fmt.Sprintf("%s?%s Select profile %s(1-%d)%s or %sq%s to quit: ",
-			Yellow, Reset, Dim, len(validProfiles), Reset, Bold, Reset))
-		if !ok || text == "q" || text == "quit" || text == "exit" {
-			printInfo("Canceled")
-			os.Exit(0)
-		}
-		val, err := strconv.Atoi(text)
-		if err == nil && val >= 1 && val <= len(validProfiles) {
-			choice = val
-			break
-		}
-		printError(fmt.Sprintf("Invalid input %q. Enter a number between 1 and %d", text, len(validProfiles)))
-	}
-
-	selectedProfile := validProfiles[choice-1]
-	profile := config.Profiles[selectedProfile.Name]
-
-	if !showProductionWarning(profile) {
-		os.Exit(0)
-	}
-
-	fmt.Println()
-	printSuccess(fmt.Sprintf("Selected profile: %s", selectedProfile.Name))
-	printHeader("SET PROFILE")
-	if runtime.GOOS == "windows" {
-		fmt.Printf("  %sPowerShell:%s\n", Bold, Reset)
-		fmt.Printf("    %s$env:AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
-		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
-		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
-	} else {
-		fmt.Printf("  %sBash/Zsh:%s\n", Bold, Reset)
-		fmt.Printf("    %sexport AWS_PROFILE=\"%s\"%s\n\n", Dim, selectedProfile.Name, Reset)
-	}
-
-	printInfo("Or run commands directly:")
-	fmt.Printf("  %sawssso console --profile %s%s\n", Dim, selectedProfile.Name, Reset)
-	fmt.Printf("  %sawssso export --profile %s%s\n", Dim, selectedProfile.Name, Reset)
-}
-
-func runExport(profileName string, format string) {
+func runExport(profileName string, format string, clipboard bool) {
 	var exportFormat ExportFormat
 	switch strings.ToLower(format) {
 	case "env", "environment":
@@ -2625,9 +2466,21 @@ func runExport(profileName string, format string) {
 
 	env := detectEnvironment(profile)
 	envSymbol := getEnvironmentSymbol(env)
+
+	if clipboard {
+		if err := writeToClipboard(output); err != nil {
+			printError(fmt.Sprintf("Failed to copy to clipboard: %v", err))
+			printInfo("Printing to stdout instead:")
+			fmt.Println(output)
+			os.Exit(1)
+		}
+		printSuccess(fmt.Sprintf("Credentials copied to clipboard! %s %s / %s format", envSymbol, profileName, format))
+		printInfo(fmt.Sprintf("Expires: %s", creds.Expiration))
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "\n%s Export for profile: %s%s%s (%s %s)\n", Dim, Bold, profileName, Dim, envSymbol, env)
 	fmt.Fprintf(os.Stderr, " Format: %s\n%s\n", format, Reset)
-
 	fmt.Println(output)
 }
 
@@ -2642,7 +2495,7 @@ func runSessions() {
 
 	if len(config.Sessions) == 0 {
 		printWarning("No SSO sessions found in ~/.aws/config")
-		printInfo("Sessions are created automatically when you run 'awssso switch' or 'awssso login'")
+		printInfo("Sessions are created automatically when you run 'awssso create' or 'awssso login'")
 		printInfo("You can also add them manually:")
 		fmt.Fprintf(os.Stderr, "\n  %s[sso-session my-session]%s\n", Dim, Reset)
 		fmt.Fprintf(os.Stderr, "  %ssso_start_url = https://d-123.awsapps.com/start/%s\n", Dim, Reset)

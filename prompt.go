@@ -54,7 +54,7 @@ func runPrompt(install bool) {
 func installPrompt() {
 	shell := detectShell()
 	if shell == "" {
-		printError("Could not detect shell. Set --shell manually: awssso prompt --install --shell zsh|bash|fish|powershell")
+		printError("Could not detect shell. Set --shell manually: awssso completion --prompt --install --shell zsh|bash|fish|powershell")
 		os.Exit(1)
 	}
 	printInfo(fmt.Sprintf("Detected shell: %s", shell))
@@ -78,15 +78,15 @@ func installPromptZsh() {
 	home, _ := homeDir()
 	rc := filepath.Join(home, ".zshrc")
 
-	snippet := "\n# awssso prompt integration\nPROMPT='$(awssso prompt) '$PROMPT\n"
-	if alreadyInstalled(rc, "awssso prompt") {
-		printInfo("awssso prompt is already in ~/.zshrc")
+	snippet := "\n# awssso completion --prompt integration\nPROMPT='$(awssso completion --prompt) '$PROMPT\n"
+	if alreadyInstalled(rc, "awssso completion --prompt") {
+		printInfo("awssso completion --prompt is already in ~/.zshrc")
 		return
 	}
 	if err := appendToFile(rc, snippet); err != nil {
 		printError(fmt.Sprintf("Failed to update ~/.zshrc: %v", err))
 		printInfo("Add this line manually to ~/.zshrc:")
-		fmt.Printf("  %sPROMPT='$(awssso prompt) '$PROMPT%s\n", Dim, Reset)
+		fmt.Printf("  %sPROMPT='$(awssso completion --prompt) '$PROMPT%s\n", Dim, Reset)
 		return
 	}
 	printSuccess("Prompt integration added to ~/.zshrc")
@@ -105,15 +105,15 @@ func installPromptBash() {
 		}
 	}
 
-	snippet := "\n# awssso prompt integration\nPS1='\\[$(awssso prompt)\\]'$PS1\n"
-	if alreadyInstalled(rc, "awssso prompt") {
-		printInfo(fmt.Sprintf("awssso prompt is already in %s", rc))
+	snippet := "\n# awssso completion --prompt integration\nPS1='\\[$(awssso completion --prompt)\\]'$PS1\n"
+	if alreadyInstalled(rc, "awssso completion --prompt") {
+		printInfo(fmt.Sprintf("awssso completion --prompt is already in %s", rc))
 		return
 	}
 	if err := appendToFile(rc, snippet); err != nil {
 		printError(fmt.Sprintf("Failed to update %s: %v", rc, err))
 		printInfo("Add this line manually:")
-		fmt.Printf("  %sPS1='\\[$(awssso prompt)\\]'$PS1%s\n", Dim, Reset)
+		fmt.Printf("  %sPS1='\\[$(awssso completion --prompt)\\]'$PS1%s\n", Dim, Reset)
 		return
 	}
 	printSuccess(fmt.Sprintf("Prompt integration added to %s", rc))
@@ -133,8 +133,8 @@ func installPromptFish() {
 
 	// If a fish_prompt already exists, prepend to it rather than overwriting
 	if _, err := os.Stat(funcFile); err == nil {
-		if alreadyInstalled(funcFile, "awssso prompt") {
-			printInfo("awssso prompt is already in fish_prompt.fish")
+		if alreadyInstalled(funcFile, "awssso completion --prompt") {
+			printInfo("awssso completion --prompt is already in fish_prompt.fish")
 			return
 		}
 		// Read existing, inject awssso badge after the function header
@@ -142,7 +142,7 @@ func installPromptFish() {
 		existing := string(data)
 		injected := strings.Replace(existing,
 			"function fish_prompt",
-			"function fish_prompt\n    printf '%s ' (awssso prompt)",
+			"function fish_prompt\n    printf '%s ' (awssso completion --prompt)",
 			1)
 		if err := os.WriteFile(funcFile, []byte(injected), 0644); err != nil {
 			printError(fmt.Sprintf("Failed to update fish_prompt.fish: %v", err))
@@ -151,7 +151,7 @@ func installPromptFish() {
 	} else {
 		// No existing fish_prompt — write a minimal one
 		content := `function fish_prompt
-    printf '%s ' (awssso prompt)
+    printf '%s ' (awssso completion --prompt)
     printf '%s> ' (prompt_pwd)
 end
 `
@@ -175,15 +175,15 @@ func installPromptPowerShell() {
 	if err != nil {
 		printError("Could not locate PowerShell profile path.")
 		printInfo("Add this to your $PROFILE manually:")
-		fmt.Printf("  %sfunction prompt { \"$(awssso prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> \" }%s\n", Dim, Reset)
+		fmt.Printf("  %sfunction prompt { \"$(awssso completion --prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> \" }%s\n", Dim, Reset)
 		return
 	}
 
 	profilePath := strings.TrimSpace(string(out))
-	snippet := "\n# awssso prompt integration\nfunction prompt { \"$(awssso prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> \" }\n"
+	snippet := "\n# awssso completion --prompt integration\nfunction prompt { \"$(awssso completion --prompt) PS $($executionContext.SessionState.Path.CurrentLocation)> \" }\n"
 
-	if alreadyInstalled(profilePath, "awssso prompt") {
-		printInfo(fmt.Sprintf("awssso prompt is already in %s", profilePath))
+	if alreadyInstalled(profilePath, "awssso completion --prompt") {
+		printInfo(fmt.Sprintf("awssso completion --prompt is already in %s", profilePath))
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
