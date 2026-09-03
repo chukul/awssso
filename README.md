@@ -80,6 +80,7 @@ go build -o awssso.exe .
 
 | Command | Description |
 |---------|-------------|
+| `shell` | Spawn a system shell (bash/zsh/PowerShell) with the active profile's AWS credentials |
 | `completion --install` | Install tab completion (zsh, bash, fish, PowerShell) |
 | `completion --prompt --install` | Install shell prompt badge (`[🔴 prod ~9m]`) |
 | `completion --prompt` | Print badge for PS1 embedding |
@@ -231,6 +232,43 @@ rem Or run the generated helper script
 ```
 
 > **Note:** Setting `AWS_PROFILE` this way only affects the current terminal session. To persist it, add the export to `~/.zshrc` or `~/.bashrc` on macOS/Linux, or set it in System Properties → Environment Variables on Windows.
+
+---
+
+## Spawning a System Shell
+
+Once you've activated a profile, use the `shell` command to spawn a system shell (bash/zsh/PowerShell) with that profile's AWS credentials in the environment. This lets you run `terraform`, `aws-cli`, and other tools directly without manually exporting credentials.
+
+### macOS / Linux
+
+```bash
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn bash/zsh with AWS credentials
+$ terraform plan               # Now terraform sees AWS_PROFILE, AWS_ACCESS_KEY_ID, etc.
+$ aws s3 ls                    # And aws-cli works too
+$ exit                         # Return to awssso REPL
+awssso › exit
+```
+
+### Windows (PowerShell)
+
+```powershell
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn PowerShell with AWS credentials
+PS> terraform plan             # terraform sees the env vars
+PS> aws s3 ls                  # aws-cli works too
+PS> exit                       # Return to awssso REPL
+awssso › exit
+```
+
+The spawned shell inherits:
+
+- `AWS_PROFILE` — the active profile name
+- `AWS_ACCESS_KEY_ID` — temporary access key for this profile
+- `AWS_SECRET_ACCESS_KEY` — temporary secret key
+- `AWS_SESSION_TOKEN` — temporary session token (if using STS/assumed roles)
+
+All credentials expire when the profile's SSO token expires; you'll need to run `refresh` in the REPL and spawn a new shell.
 
 ---
 

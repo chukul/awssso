@@ -49,6 +49,9 @@ func main() {
 	completionInstall := completionCmd.Bool("install", false, "Install the script for the current user")
 	completionPrompt := completionCmd.Bool("prompt", false, "Output or install a shell prompt badge instead of tab completion")
 
+	shellCmd := flag.NewFlagSet("shell", flag.ExitOnError)
+	shellProfile := shellCmd.String("profile", "", "AWS profile name (uses active profile if omitted)")
+
 	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
 
 	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
@@ -124,7 +127,8 @@ func main() {
 			runCompletion(*completionShell, *completionInstall)
 		}
 	case "shell":
-		runREPL()
+		_ = shellCmd.Parse(os.Args[2:])
+		runShell(*shellProfile)
 	case "__list-profiles":
 		runListProfiles()
 	case "__list-sessions":
@@ -176,6 +180,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %sinit%s        First-time setup wizard\n\n", Cyan, Reset)
 
 	fmt.Fprintf(os.Stderr, "%sSHELL INTEGRATION:%s\n", Bold, Reset)
+	fmt.Fprintf(os.Stderr, "  %sshell%s       Spawn a system shell with the active profile's AWS credentials\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %scompletion%s  Tab completion (--install) · prompt badge (--prompt --install)\n\n", Cyan, Reset)
 
 	fmt.Fprintf(os.Stderr, "%sKEY OPTIONS:%s\n", Bold, Reset)

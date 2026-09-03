@@ -31,7 +31,7 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestIsKnownCommand(t *testing.T) {
-	known := []string{"login", "create", "export", "profiles", "doctor", "group"}
+	known := []string{"login", "create", "export", "profiles", "doctor", "group", "shell"}
 	for _, cmd := range known {
 		if !isKnownCommand(cmd) {
 			t.Errorf("expected %q to be a known command", cmd)
@@ -75,5 +75,16 @@ func TestCompleterFormatValues(t *testing.T) {
 	results, _ := c.Do(line, len(line))
 	if len(results) == 0 {
 		t.Error("expected format completions after '--format '")
+	}
+}
+
+func TestCompleterShellProfile(t *testing.T) {
+	c := &replCompleter{}
+
+	// After "shell --profile " the profile names should be offered
+	line := []rune("shell --profile ")
+	results, _ := c.Do(line, len(line))
+	if len(results) == 0 {
+		t.Error("expected profile completions after 'shell --profile '")
 	}
 }

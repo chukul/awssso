@@ -39,6 +39,7 @@ var replCommandFlags = map[string][]string{
 	"group":      {"--add", "--remove", "--profile"},
 	"profiles":   {"--group"},
 	"completion": {"--shell", "--install", "--prompt"},
+	"shell":      {"--profile"},
 }
 
 var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process"}
