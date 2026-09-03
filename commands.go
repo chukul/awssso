@@ -2766,13 +2766,15 @@ func parseSelection(input string, maxItems int) []int {
 	return indices
 }
 
-// runShell spawns a system shell with the active profile's AWS credentials in the environment.
-// This allows users to run terraform, aws-cli, and other tools within the REPL without
-// manually exporting credentials.
-func runShell() {
-	profile := os.Getenv("AWS_PROFILE")
-	if profile == "" {
-		printWarning("No active profile. Use 'profiles' to activate one.")
+// runShell spawns a system shell with the given profile's AWS credentials in the environment.
+// This allows users to run terraform, aws-cli, and other tools without manually exporting credentials.
+// If profileName is empty, uses the active profile from AWS_PROFILE environment variable.
+func runShell(profileName string) {
+	if profileName == "" {
+		profileName = os.Getenv("AWS_PROFILE")
+	}
+	if profileName == "" {
+		printWarning("No active profile. Use 'profiles' to activate one, or run: awssso shell --profile <name>")
 		return
 	}
 
@@ -2785,7 +2787,7 @@ func runShell() {
 		return
 	}
 
-	creds, _, err := resolveCredentials(ctx, profile, config)
+	creds, _, err := resolveCredentials(ctx, profileName, config)
 	if err != nil {
 		printError(fmt.Sprintf("Failed to resolve credentials: %v", err))
 		return
@@ -2797,7 +2799,7 @@ func runShell() {
 		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", creds.AccessKeyId),
 		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", creds.SecretAccessKey),
 		fmt.Sprintf("AWS_SESSION_TOKEN=%s", creds.SessionToken),
-		fmt.Sprintf("AWS_PROFILE=%s", profile),
+		fmt.Sprintf("AWS_PROFILE=%s", profileName),
 	)
 
 	// Determine shell and spawn
@@ -2816,7 +2818,7 @@ func runShell() {
 	}
 
 	fmt.Println()
-	printSuccess(fmt.Sprintf("Spawning %s with profile: %s", filepath.Base(shell), profile))
+	printSuccess(fmt.Sprintf("Spawning %s with profile: %s", filepath.Base(shell), profileName))
 	if runtime.GOOS != "windows" {
 		printInfo("Type 'exit' to return to awssso")
 	}

@@ -16,7 +16,7 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback; `whoami` refreshes silently
 - **Profile groups** — tag profiles (`awssso group`), filter lists by tag (`profiles --group eks`), create and delete groups
 - **Cross-platform** — all path handling uses `filepath.Join`; Windows, macOS, and Linux all tested; arrow keys work in the interactive shell on all platforms
-- **Interactive shell** — `awssso` drops into a REPL with full line editing: Tab shows profile names (not full commands), auto-completes common prefix, ↑↓ history, ←→ cursor, Home/End, Delete, copy/paste — no setup required
+- **Interactive shell** — `awssso` drops into a REPL with full line editing: Tab shows profile names (not full commands), auto-completes the common prefix, and opens an interactive selectable popup (↑↓ / Tab / Enter) when several matches exist; ↑↓ history, ←→ cursor, Home/End, Delete, copy/paste — no setup required
 - **Tab completion** — zsh, bash, fish, PowerShell; all commands, flags, profile names, group tags complete dynamically
 - **Shell prompt badge** — `awssso completion --prompt --install` patches your shell config; shows `[🔴 prod ~9m]` with expiry warning
 - **Environment detection** — colour-coded profiles (🔴 prod, 🟡 staging/oat, 🟣 int, ⚪ sandbox, 🟢 dev)
@@ -80,6 +80,7 @@ go build -o awssso.exe .
 
 | Command | Description |
 |---------|-------------|
+| `shell` | Spawn a system shell (bash/zsh/PowerShell) with the active profile's AWS credentials |
 | `completion --install` | Install tab completion (zsh, bash, fish, PowerShell) |
 | `completion --prompt --install` | Install shell prompt badge (`[🔴 prod ~9m]`) |
 | `completion --prompt` | Print badge for PS1 embedding |
@@ -231,6 +232,43 @@ rem Or run the generated helper script
 ```
 
 > **Note:** Setting `AWS_PROFILE` this way only affects the current terminal session. To persist it, add the export to `~/.zshrc` or `~/.bashrc` on macOS/Linux, or set it in System Properties → Environment Variables on Windows.
+
+---
+
+## Spawning a System Shell
+
+Once you've activated a profile, use the `shell` command to spawn a system shell (bash/zsh/PowerShell) with that profile's AWS credentials in the environment. This lets you run `terraform`, `aws-cli`, and other tools directly without manually exporting credentials.
+
+### macOS / Linux
+
+```bash
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn bash/zsh with AWS credentials
+$ terraform plan               # Now terraform sees AWS_PROFILE, AWS_ACCESS_KEY_ID, etc.
+$ aws s3 ls                    # And aws-cli works too
+$ exit                         # Return to awssso REPL
+awssso › exit
+```
+
+### Windows (PowerShell)
+
+```powershell
+awssso › profiles               # Activate a profile
+awssso › shell                  # Spawn PowerShell with AWS credentials
+PS> terraform plan             # terraform sees the env vars
+PS> aws s3 ls                  # aws-cli works too
+PS> exit                       # Return to awssso REPL
+awssso › exit
+```
+
+The spawned shell inherits:
+
+- `AWS_PROFILE` — the active profile name
+- `AWS_ACCESS_KEY_ID` — temporary access key for this profile
+- `AWS_SECRET_ACCESS_KEY` — temporary secret key
+- `AWS_SESSION_TOKEN` — temporary session token (if using STS/assumed roles)
+
+All credentials expire when the profile's SSO token expires; you'll need to run `refresh` in the REPL and spawn a new shell.
 
 ---
 
@@ -492,7 +530,7 @@ awssso › exit
 
 All commands work exactly as normal, including interactive ones like `create`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
 
-> **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names · `Ctrl+A` / `Ctrl+E` go to line start/end · `Ctrl+C` clears the current line · `Ctrl+D` exits.
+> **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names — when several matches exist it opens an interactive popup you navigate with `↑` / `↓` (or `Tab` / `Shift+Tab`) and select with `Enter` (`Esc` cancels) · `Ctrl+A` / `Ctrl+E` go to line start/end · `Ctrl+C` clears the current line · `Ctrl+D` exits.
 
 ### Spawning a System Shell from the REPL
 
@@ -666,6 +704,7 @@ stringData:
 ├── rename.go            # awssso rename — profile rename
 ├── dashboard.go         # SessionItem type + TUI internals (bubbletea; dashboard not exposed as a command)
 ├── util.go              # Utility functions (formatting, Levenshtein, filtering)
+├── colors.go            # ANSI colour vars + NO_COLOR / non-TTY suppression (shared)
 ├── ui.go                # Terminal UI helpers       [Windows build tag]
 ├── ui_other.go          # Terminal UI helpers       [macOS / Linux build tag]
 ├── browser_windows.go   # Browser open + InPrivate  [Windows build tag]

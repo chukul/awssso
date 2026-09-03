@@ -40,7 +40,7 @@ _awssso_commands() {
     'doctor:Run config and token health check'
     'init:First-time setup wizard'
     'completion:Shell completion and prompt badge (--install, --prompt)'
-    'shell:Start the interactive shell'
+    'shell:Spawn a system shell with the active profile'\''s AWS credentials'
     'help:Show help message'
   )
   _describe -t commands 'awssso command' commands
@@ -71,7 +71,7 @@ _awssso() {
             '--private[Open browser in incognito/InPrivate mode]' \
             '--force[Refresh even valid tokens]'
           ;;
-        credential|console|whoami|delete)
+        credential|console|whoami|delete|shell)
           _arguments \
             '--profile[AWS profile name]:profile:_awssso_profiles'
           ;;
@@ -132,7 +132,7 @@ const bashCompletion = `_awssso() {
       COMPREPLY=($(compgen -W "--profile --session --private" -- "$cur")) ;;
     refresh)
       COMPREPLY=($(compgen -W "--profile --session --private --force" -- "$cur")) ;;
-    credential|console|whoami|delete)
+    credential|console|whoami|delete|shell)
       COMPREPLY=($(compgen -W "--profile" -- "$cur")) ;;
     export)
       COMPREPLY=($(compgen -W "--profile --format --clipboard" -- "$cur")) ;;
@@ -163,6 +163,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
         'delete'     = @('--profile')
         'export'     = @('--profile','--format','--clipboard')
         'completion' = @('--shell','--install','--prompt')
+        'shell'      = @('--profile')
     }
 
     $elements = $commandAst.CommandElements
@@ -231,12 +232,12 @@ complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a delete  
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a doctor     -d "Run config and token health check"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a init       -d "First-time setup wizard"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a completion -d "Shell completion and prompt badge (--install, --prompt)"
-complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a shell      -d "Start the interactive shell"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a shell      -d "Spawn a system shell with the active profile'\''s AWS credentials"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a help       -d "Show help message"
 
 # --profile (dynamic, reads ~/.aws/config)
 complete -c awssso -l profile -r -d "AWS profile name" \
-  -n "__fish_seen_subcommand_from login create console whoami delete refresh export" \
+  -n "__fish_seen_subcommand_from login create console whoami delete refresh export shell" \
   -a "(awssso __list-profiles 2>/dev/null)"
 
 # --session (dynamic, reads ~/.aws/config)

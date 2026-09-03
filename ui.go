@@ -11,23 +11,6 @@ import (
 	"unsafe"
 )
 
-const (
-	Reset     = "\033[0m"
-	Bold      = "\033[1m"
-	Dim       = "\033[2m"
-	Underline = "\033[4m"
-
-	Red     = "\033[31m"
-	Green   = "\033[32m"
-	Yellow  = "\033[33m"
-	Blue    = "\033[34m"
-	Magenta = "\033[35m"
-	Cyan    = "\033[36m"
-	White   = "\033[37m"
-
-	BrightBlack = "\033[90m"
-)
-
 func initTerminal() {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	setConsoleMode := kernel32.NewProc("SetConsoleMode")
@@ -49,6 +32,10 @@ func initTerminal() {
 		getConsoleMode.Call(inHandle, uintptr(unsafe.Pointer(&mode)))
 		setConsoleMode.Call(inHandle, uintptr(mode)|0x0200) // add ENABLE_VIRTUAL_TERMINAL_INPUT
 	}
+
+	// Resolve color output (NO_COLOR / non-TTY / dumb terminal) after enabling
+	// the Windows VT processing above.
+	initColors()
 }
 
 // Spinner provides animated terminal feedback during long-running operations.
@@ -89,33 +76,38 @@ func (s *Spinner) Stop(success bool, completionMsg string) {
 	close(s.stop)
 	<-s.done // wait for goroutine to clear the line before we print
 	if success {
-		fmt.Printf("\r%s✔%s %s\n", Green, Reset, completionMsg)
+		fmt.Printf("\r%s✓%s %s\n", Green, Reset, completionMsg)
 	} else {
-		fmt.Printf("\r%s✘%s %s\n", Red, Reset, completionMsg)
+		fmt.Printf("\r%s✗%s %s\n", Red, Reset, completionMsg)
 	}
 }
 
 func printHeader(title string) {
-	fmt.Printf("\n%s%s%s%s\n", Bold, Cyan, title, Reset)
-	fmt.Printf("%s%s%s\n\n", Dim, strings.Repeat("━", len(title)), Reset)
+	// Modern, understated header: a colored accent bar precedes a bold title,
+	// followed by a thin dim rule sized to the title. Avoids shouty ALL-CAPS blocks.
+	fmt.Printf("\n%s▎%s%s%s %s\n", Cyan, Bold, title, Reset, Reset)
+	fmt.Printf("%s%s%s\n\n", Dim, strings.Repeat("─", len([]rune(title))+2), Reset)
 }
 
+// Diagnostic output (success/info/warning) goes to stderr so stdout stays a
+// clean, pipeable data stream (e.g. `awssso export --format kyaml | kubectl apply -f -`
+// or `awssso completion --shell zsh > _awssso`). Errors already go to stderr.
 func printSuccess(msg string) {
-	fmt.Printf("%s✔%s %s\n", Green, Reset, msg)
+	fmt.Fprintf(os.Stderr, "%s✓%s %s\n", Green, Reset, msg)
 }
 
 func printInfo(msg string) {
-	fmt.Printf("%sℹ%s %s\n", Blue, Reset, msg)
+	fmt.Fprintf(os.Stderr, "%s→%s %s\n", Cyan, Reset, msg)
 }
 
 func printWarning(msg string) {
-	fmt.Printf("%s⚠%s %s\n", Yellow, Reset, msg)
+	fmt.Fprintf(os.Stderr, "%s%s!%s %s\n", Bold, Yellow, Reset, msg)
 }
 
 func printError(msg string) {
-	fmt.Fprintf(os.Stderr, "%s✘%s %s\n", Red, Reset, msg)
+	fmt.Fprintf(os.Stderr, "%s%s✗%s %s\n", Bold, Red, Reset, msg)
 }
 
 func printPrompt(msg string) {
-	fmt.Printf("%s?%s %s", Yellow, Reset, msg)
+	fmt.Printf("%s?%s %s", Magenta, Reset, msg)
 }
