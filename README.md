@@ -29,7 +29,7 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 
 ### Requirements
 
-- Go 1.21+
+- Go 1.26+
 - AWS SSO configured in `~/.aws/config`
 
 ### macOS / Linux
@@ -534,37 +534,7 @@ All commands work exactly as normal, including interactive ones like `create`, `
 
 ### Spawning a System Shell from the REPL
 
-Once you've activated a profile in the REPL, use the `shell` command to spawn a system shell (bash/zsh/PowerShell) with that profile's AWS credentials in the environment. This lets you run terraform, aws-cli, and other tools directly without manual credential export.
-
-**macOS / Linux**
-
-```bash
-awssso › profiles               # Activate a profile
-awssso › shell                  # Spawn bash/zsh with AWS credentials
-$ terraform plan               # Now terraform sees AWS_PROFILE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
-$ aws s3 ls                    # And aws-cli works too
-$ exit                         # Return to awssso REPL
-awssso › exit
-```
-
-**Windows (PowerShell)**
-
-```powershell
-awssso › profiles               # Activate a profile
-awssso › shell                  # Spawn PowerShell with AWS credentials
-PS> terraform plan             # terraform sees the env vars
-PS> aws s3 ls                  # aws-cli works too
-PS> exit                       # Return to awssso REPL
-awssso › exit
-```
-
-The spawned shell inherits:
-- `AWS_PROFILE` — the active profile name
-- `AWS_ACCESS_KEY_ID` — temporary access key for this profile
-- `AWS_SECRET_ACCESS_KEY` — temporary secret key
-- `AWS_SESSION_TOKEN` — temporary session token (if using STS/assumed roles)
-
-All credentials expire when the profile's SSO token expires; you'll need to run `refresh` in the REPL and spawn a new shell.
+Once you've activated a profile in the REPL, the `shell` command spawns a system shell (bash/zsh/PowerShell) with that profile's AWS credentials in the environment — so you can run `terraform`, `aws-cli`, and other tools directly. See [Spawning a System Shell](#spawning-a-system-shell) above for full details and examples.
 
 ---
 
@@ -724,10 +694,11 @@ stringData:
 make build        # compile only
 make install      # compile + copy to /usr/local/bin/awssso
 make test         # run all tests
-make patch        # bump patch version, update CHANGELOG, build, install
-make minor        # bump minor version
-make major        # bump to next Fibonacci major version
+make patch        # run tests, add a patch CHANGELOG entry, build + install
+make minor        # run tests, add a minor CHANGELOG entry, build + install
 ```
+
+> There is no `make major` target — the version follows the Fibonacci major scheme (see `CHANGELOG.md`), but major bumps are done by editing `CHANGELOG.md` by hand.
 
 ### Manual (macOS / Linux)
 
@@ -745,13 +716,17 @@ go test ./...
 go vet ./...
 ```
 
-### Git Hooks (auto-installed)
+### Git Hooks (optional, local)
+
+These hooks are not committed to the repo and are not installed automatically. If you
+want them, add the scripts to your local `.git/hooks/` (or a `core.hooksPath` directory).
+Suggested hooks used during development:
 
 | Hook | Trigger | Action |
 |------|---------|--------|
-| `post-commit` | After every commit | Builds and installs `/usr/local/bin/awssso` automatically |
-| `pre-push` | Before every push | Blocks push if `README.md` or `CHANGELOG.md` were not updated |
-| `pre-commit` | Before every commit | Blocks direct commits to `main` |
+| `post-commit` | After every commit | Build and install `/usr/local/bin/awssso` |
+| `pre-push` | Before every push | Block push if `README.md` or `CHANGELOG.md` were not updated |
+| `pre-commit` | Before every commit | Block direct commits to `main` |
 
 ---
 
