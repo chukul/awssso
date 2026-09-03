@@ -346,7 +346,7 @@ func runBasicREPL(binaryPath string) {
 	printHeader("AWSSSO INTERACTIVE SHELL")
 	fmt.Printf("  %sType commands without the %sawssso%s prefix.%s\n",
 		Dim, Reset+Bold, Reset+Dim, Reset)
-	fmt.Printf("  %sTab: complete   ↑↓: history   Ctrl+D / exit: quit%s\n\n",
+	fmt.Printf("  %sTab: complete + select   ↑↓: history / menu   Enter: pick   Ctrl+D / exit: quit%s\n\n",
 		Dim, Reset)
 
 	fd := int(os.Stdin.Fd())
@@ -517,9 +517,9 @@ func runBasicREPL(binaryPath string) {
 						}
 
 					default:
-						// Multiple matches — complete to common prefix, then show options
+						// Multiple matches — complete to the common prefix first,
+						// then open an interactive, navigable selection menu.
 						if len(tc.common) > len(tc.word) {
-							// Auto-complete to common prefix first
 							newCurrent := tc.base + tc.common
 							suffix := newCurrent[len(current):]
 							newBuf := append([]byte(newCurrent), buf[cursor:]...)
@@ -527,19 +527,38 @@ func runBasicREPL(binaryPath string) {
 							buf = newBuf
 							cursor = len(newCurrent)
 							redraw()
+							current = string(buf[:cursor])
 						}
 
-						// Show only the completion word (not the full command)
-						term.Restore(fd, oldState)
-						fmt.Println()
-						for _, c := range tc.completions {
-							fmt.Printf("  %s%s%s\n", Dim, c, Reset)
+						// Open the selectable popup beneath the prompt. The menu
+						// runs its own key loop while we stay in raw mode.
+						promptLine := prompt + string(buf)
+						choice, ok := selectFromMenu(tc.completions, promptLine)
+						if ok {
+							// Replace the word being completed with the chosen option.
+							newCurrent := tc.base + choice
+							// Rebuild the line: chosen completion + any text that was
+							// to the right of the cursor.
+							newBuf := append([]byte(newCurrent), buf[cursor:]...)
+							// Redraw the whole line cleanly: return to prompt start,
+							// clear, and reprint prompt + new content.
+							fmt.Print("\r\033[K")
+							fmt.Print(prompt)
+							os.Stdout.Write(newBuf)
+							buf = newBuf
+							cursor = len(newCurrent)
+							if cursor < len(buf) {
+								fmt.Printf("\033[%dD", len(buf)-cursor)
+							}
+						} else {
+							// Cancelled — repaint the prompt line as it was.
+							fmt.Print("\r\033[K")
+							fmt.Print(prompt)
+							os.Stdout.Write(buf)
+							if cursor < len(buf) {
+								fmt.Printf("\033[%dD", len(buf)-cursor)
+							}
 						}
-						fmt.Print(prompt + string(buf))
-						if cursor < len(buf) {
-							fmt.Printf("\033[%dD", len(buf)-cursor)
-						}
-						oldState, _ = term.MakeRaw(fd)
 					}
 
 				default:
@@ -624,6 +643,120 @@ func stripANSI(s string) string {
 		}
 	}
 	return out.String()
+}
+
+// selectFromMenu renders an interactive, navigable list of completion options
+// below the current prompt line and lets the user pick one.
+//
+// The terminal is assumed to be in raw mode on entry and is left in raw mode on
+// exit (the caller manages MakeRaw/Restore around the whole read loop).
+//
+// Controls:
+//
+//	Tab / ↓ / Ctrl+N   → move selection down (wraps)
+//	Shift+Tab / ↑ / Ctrl+P → move selection up (wraps)
+//	Enter              → accept the highlighted option
+//	Esc / Ctrl+C       → cancel, return ("", false)
+//
+// It returns the chosen option string and true, or ("", false) if cancelled.
+// promptLine is the full text currently on the prompt line (prompt+buf) so the
+// menu can be drawn beneath it and cleaned up afterwards.
+func selectFromMenu(options []string, promptLine string) (string, bool) {
+	if len(options) == 0 {
+		return "", false
+	}
+
+	sel := 0
+	drawn := 0 // number of menu lines currently drawn (for cleanup)
+
+	// draw renders the menu below the prompt line, then returns the cursor to
+	// the prompt line so the caller's redraw stays correct.
+	draw := func() {
+		// Move to a fresh line under the prompt and clear everything below.
+		fmt.Print("\r\n\033[J")
+		for i, opt := range options {
+			pointer := "  "
+			style := Dim
+			if i == sel {
+				pointer = Cyan + "❯ " + Reset
+				style = Bold + Cyan
+			}
+			fmt.Printf("%s%s%s%s\r\n", pointer, style, opt, Reset)
+		}
+		// Move cursor back up to the prompt line and restore it.
+		fmt.Printf("\033[%dA", len(options)+1)
+		fmt.Print("\r")
+		fmt.Print(promptLine)
+		drawn = len(options)
+	}
+
+	// clear erases the drawn menu lines below the prompt.
+	clear := func() {
+		if drawn == 0 {
+			return
+		}
+		fmt.Print("\r\n\033[J") // go below prompt, clear to end of screen
+		fmt.Print("\033[1A")    // back up to the prompt line
+		fmt.Print("\r")
+		fmt.Print(promptLine)
+		drawn = 0
+	}
+
+	draw()
+
+	b := make([]byte, 8)
+	for {
+		n, err := os.Stdin.Read(b)
+		if err != nil || n == 0 {
+			clear()
+			return "", false
+		}
+
+		// Handle escape / arrow sequences.
+		if b[0] == 27 { // ESC
+			if n == 1 {
+				clear()
+				return "", false // bare Esc cancels
+			}
+			if n >= 3 && b[1] == '[' {
+				switch b[2] {
+				case 'A': // Up
+					sel = (sel - 1 + len(options)) % len(options)
+					draw()
+					continue
+				case 'B': // Down
+					sel = (sel + 1) % len(options)
+					draw()
+					continue
+				case 'Z': // Shift+Tab
+					sel = (sel - 1 + len(options)) % len(options)
+					draw()
+					continue
+				}
+			}
+			continue
+		}
+
+		switch b[0] {
+		case '\t', 14: // Tab or Ctrl+N → next
+			sel = (sel + 1) % len(options)
+			draw()
+		case 16: // Ctrl+P → previous
+			sel = (sel - 1 + len(options)) % len(options)
+			draw()
+		case '\r', '\n': // Enter → accept
+			clear()
+			return options[sel], true
+		case 3: // Ctrl+C → cancel
+			clear()
+			return "", false
+		default:
+			// Any other key cancels the menu without consuming the key's
+			// intent; simplest predictable behaviour is to cancel.
+			clear()
+			return "", false
+		}
+	}
 }
 
 // tabCompleteResult holds the parts of a tab-completion result.

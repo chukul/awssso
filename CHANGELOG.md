@@ -6,6 +6,19 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## Unreleased
+
+### UX / UI
+- **Interactive tab-completion menu** — in the REPL, pressing Tab with multiple matches now opens a navigable popup: `↑`/`↓` (or `Tab`/`Shift+Tab`, `Ctrl+N`/`Ctrl+P`) move the highlighted `❯` selection, `Enter` picks it, `Esc`/`Ctrl+C` cancels. Single unique matches still auto-complete instantly. Replaces the previous static, non-selectable list.
+- **Modern output styling** — `printHeader` now uses a subtle accent bar (`▎`) + bold title + thin `─` rule instead of ALL-CAPS heavy blocks; status glyphs refreshed (`✓` success, `→` info, `!` warning, `✗` error, magenta `?` prompt).
+
+### Fixes
+- **Color output honours conventions** — colour/style codes are now suppressed automatically when output is piped/redirected (not a TTY), when `NO_COLOR` is set, or when `TERM=dumb`; `FORCE_COLOR`/`CLICOLOR_FORCE` force colour on. Previously raw ANSI escapes leaked into pipes and files (e.g. corrupting `completion --shell zsh > _awssso`). Colour constants moved to a shared `colors.go`, eliminating the duplicated definitions in `ui.go`/`ui_other.go`.
+- **stdout/stderr discipline** — `printSuccess`/`printInfo`/`printWarning` diagnostics now go to stderr (matching `printError`), keeping stdout a clean, pipeable data stream (e.g. `export --format kyaml | kubectl apply -f -`).
+- **Exit codes** — unknown command now exits `2` (usage error) per Unix convention instead of `1`.
+
+---
+
 ## v4.0.0 — 2026-09-02
 
 ### Removed

@@ -143,7 +143,7 @@ func main() {
 		printError(fmt.Sprintf("Unknown command %q", os.Args[1]))
 		fmt.Fprintf(os.Stderr, "\n")
 		printUsage()
-		os.Exit(1)
+		os.Exit(2) // 2 = usage error (invalid command/args), per Unix convention
 	}
 }
 

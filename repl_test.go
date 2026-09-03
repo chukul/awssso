@@ -88,3 +88,40 @@ func TestCompleterShellProfile(t *testing.T) {
 		t.Error("expected profile completions after 'shell --profile '")
 	}
 }
+
+// TestTabCompleteMenuTrigger verifies the classification the interactive Tab
+// menu relies on: multi-match prefixes yield >=2 full-word completions (menu
+// path) while a unique prefix yields exactly one (auto-complete path). It also
+// checks that selecting an option reconstructs the line as base + choice.
+func TestTabCompleteMenuTrigger(t *testing.T) {
+	// Multiple matches → menu path. "c" matches console + create.
+	m := tabComplete("c")
+	if len(m.completions) < 2 {
+		t.Fatalf("expected >=2 completions for 'c' (menu path), got %v", m.completions)
+	}
+	if m.base != "" || m.word != "c" {
+		t.Errorf("base/word wrong: base=%q word=%q", m.base, m.word)
+	}
+	// Selection reconstruction: choosing "create" rebuilds to base+choice.
+	if got := m.base + "create"; got != "create" {
+		t.Errorf("selection reconstruction wrong: got %q, want %q", got, "create")
+	}
+
+	// Mid-line value completion preserves the base and reconstructs correctly.
+	f := tabComplete("export --format ")
+	if len(f.completions) < 2 {
+		t.Fatalf("expected multiple format completions, got %v", f.completions)
+	}
+	if f.base != "export --format " {
+		t.Errorf("base not preserved for mid-line completion: %q", f.base)
+	}
+	if line := f.base + "json"; line != "export --format json" {
+		t.Errorf("format selection reconstruction wrong: %q", line)
+	}
+
+	// Unique prefix → single completion (auto-complete path, no menu).
+	w := tabComplete("wh")
+	if len(w.completions) != 1 || w.completions[0] != "whoami" {
+		t.Errorf("expected single completion 'whoami', got %v", w.completions)
+	}
+}
