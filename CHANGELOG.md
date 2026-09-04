@@ -6,16 +6,28 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
-## Unreleased
+## v4.1.0 — 2026-09-03
 
-### UX / UI
-- **Interactive tab-completion menu** — in the REPL, pressing Tab with multiple matches now opens a navigable popup: `↑`/`↓` (or `Tab`/`Shift+Tab`, `Ctrl+N`/`Ctrl+P`) move the highlighted `❯` selection, `Enter` picks it, `Esc`/`Ctrl+C` cancels. Single unique matches still auto-complete instantly. Replaces the previous static, non-selectable list.
-- **Modern output styling** — `printHeader` now uses a subtle accent bar (`▎`) + bold title + thin `─` rule instead of ALL-CAPS heavy blocks; status glyphs refreshed (`✓` success, `→` info, `!` warning, `✗` error, magenta `?` prompt).
+### Features
+- **`awssso shell` — credentialed system shell** — typing `shell` inside the REPL (or `awssso shell` directly) spawns a new bash/zsh/PowerShell session with `AWS_PROFILE` and temporary credentials already injected; `--profile <name>` targets a specific profile
+- **Interactive Tab-completion menu** — in the REPL, Tab with multiple matches opens a navigable popup: `↑`/`↓` (or `Tab`/`Shift+Tab`, `Ctrl+N`/`Ctrl+P`) move the `❯` selection, `Enter` picks, `Esc`/`Ctrl+C` cancels; single unique matches still auto-complete instantly
+- **`awssso recreate` — bulk profile creation** — `recreate <p1> <p2> <p3> ...` auto-matches each name to an AWS account, picks the role automatically (single role → silent; `--role <name>` pins a preferred role across all), and saves each profile using exactly the name given; `--session` pins a specific SSO identity
+- **`export --format profile`** — outputs `export AWS_PROFILE="<name>"` (macOS/Linux) or `$env:AWS_PROFILE="<name>"` (Windows) with no credential fetch; works for any profile including unconfigured ones; supports `--clipboard`
+- **`version` inside the REPL** — typing `version` in the interactive shell now works instead of returning `Unknown command`
+- **Modern output styling** — `printHeader` uses a subtle accent bar (`▎`) + bold title + thin `─` rule; status glyphs refreshed (`✓` success, `→` info, `!` warning, `✗` error, `?` prompt)
 
 ### Fixes
-- **Color output honours conventions** — colour/style codes are now suppressed automatically when output is piped/redirected (not a TTY), when `NO_COLOR` is set, or when `TERM=dumb`; `FORCE_COLOR`/`CLICOLOR_FORCE` force colour on. Previously raw ANSI escapes leaked into pipes and files (e.g. corrupting `completion --shell zsh > _awssso`). Colour constants moved to a shared `colors.go`, eliminating the duplicated definitions in `ui.go`/`ui_other.go`.
-- **stdout/stderr discipline** — `printSuccess`/`printInfo`/`printWarning` diagnostics now go to stderr (matching `printError`), keeping stdout a clean, pipeable data stream (e.g. `export --format kyaml | kubectl apply -f -`).
-- **Exit codes** — unknown command now exits `2` (usage error) per Unix convention instead of `1`.
+- **Arrow keys in REPL** — the key handler now accepts both ANSI mode (`\x1b[A/B/C/D`) and application cursor mode (`\x1bOA/B/C/D`); previously terminals in application cursor mode silently swallowed all four arrow keys
+- **Esc in REPL** — pressing Esc at the main prompt clears the current input line; pressing Esc at any sub-prompt (profile picker, role selector, group confirmation, etc.) cancels and returns to the REPL — previously Esc did nothing in most places; `chzyer/readline` dependency removed
+- **`group <tag> --add p1 p2 ...`** — `--add`/`--remove` flags that appear after a positional argument were silently ignored because Go's flag parser stops at the first non-flag arg; the handler now strips them from the positional list correctly so `group favourites --add p1 p2 p3` works as expected
+- **Export picker shows active profiles only** — the interactive picker for `export` and `export --clipboard` now lists only profiles with an active SSO token; expired and unconfigured profiles are hidden so every listed option can be used immediately (`--format profile` is exempt since it needs no credentials)
+- **Color output honours conventions** — ANSI codes suppressed when stdout is piped/redirected, `NO_COLOR` is set, or `TERM=dumb`; `FORCE_COLOR`/`CLICOLOR_FORCE` force colour on; previously raw escapes leaked into pipes and files
+- **stdout/stderr discipline** — `printSuccess`/`printInfo`/`printWarning` now write to stderr, keeping stdout a clean pipeable stream (e.g. `export --format kyaml | kubectl apply -f -` works correctly)
+- **Windows REPL arrow keys** — `initTerminal` enables `ENABLE_VIRTUAL_TERMINAL_INPUT` on stdin so arrow keys produce ESC sequences compatible with `golang.org/x/term` raw mode
+- **Windows `runShell` PowerShell fallback** — tries `powershell.exe` first, then `pwsh`, so both Windows PowerShell 5 and PowerShell 7 installs work
+- **Production warning prompt** — replaced `fmt.Scanln` with `readlineInput` so Esc and arrow keys work at the `Continue? (y/N)` prompt
+- **`init` role picker** — replaced `bufio.Scanner` with `readlineInput` so Esc cancels and arrow keys work during first-time setup
+- **Exit codes** — unknown command exits `2` (usage error) per Unix convention instead of `1`
 
 ---
 
