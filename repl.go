@@ -25,7 +25,7 @@ var replCommands = []string{
 	"login", "create", "profiles", "export", "refresh",
 	"whoami", "console", "group",
 	"recreate", "rename", "delete", "doctor", "init",
-	"completion", "shell", "help", "exit", "quit",
+	"completion", "shell", "version", "help", "exit", "quit",
 }
 
 var replCommandFlags = map[string][]string{
