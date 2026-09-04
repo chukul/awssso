@@ -52,6 +52,10 @@ func main() {
 	shellCmd := flag.NewFlagSet("shell", flag.ExitOnError)
 	shellProfile := shellCmd.String("profile", "", "AWS profile name (uses active profile if omitted)")
 
+	recreateCmd := flag.NewFlagSet("recreate", flag.ExitOnError)
+	recreateRole := recreateCmd.String("role", "", "Default role name to use when multiple roles are available")
+	recreateSession := recreateCmd.String("session", "", "SSO session to use (defaults to any active session)")
+
 	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
 
 	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
@@ -108,6 +112,9 @@ func main() {
 		runDoctor()
 	case "init":
 		runInit()
+	case "recreate":
+		_ = recreateCmd.Parse(os.Args[2:])
+		runRecreate(recreateCmd.Args(), *recreateRole, *recreateSession)
 	case "rename":
 		_ = renameCmd.Parse(os.Args[2:])
 		args := renameCmd.Args()
@@ -174,6 +181,7 @@ func printUsage() {
 
 	fmt.Fprintf(os.Stderr, "%sMANAGEMENT:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %sgroup%s       Manage profile groups (--add, --remove; profiles --group <tag>)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %srecreate%s    Recreate profiles by name — auto-matches account and role\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdelete%s      Delete one or more profiles\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdoctor%s      Run a config and token health check\n", Cyan, Reset)

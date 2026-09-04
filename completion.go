@@ -35,6 +35,7 @@ _awssso_commands() {
     'whoami:Show current profile and token status'
     'console:Open AWS Console in browser'
     'group:Manage profile groups'
+    'recreate:Bulk-recreate profiles by name (auto-matches account and role)'
     'rename:Rename a profile'
     'delete:Delete one or more profiles'
     'doctor:Run config and token health check'
@@ -71,6 +72,11 @@ _awssso() {
             '--private[Open browser in incognito/InPrivate mode]' \
             '--force[Refresh even valid tokens]'
           ;;
+        recreate)
+          _arguments \
+            '--role[Default role name to use]:role:()' \
+            '--session[SSO session to use]:session:_awssso_sessions'
+          ;;
         credential|console|whoami|delete|shell)
           _arguments \
             '--profile[AWS profile name]:profile:_awssso_profiles'
@@ -99,7 +105,7 @@ const bashCompletion = `_awssso() {
   local cur prev words cword
   _init_completion || return
 
-  local commands="login create profiles export refresh whoami console group rename delete doctor init completion shell help"
+  local commands="login create profiles export refresh whoami console group recreate rename delete doctor init completion shell help"
 
   if [[ $cword -eq 1 ]]; then
     COMPREPLY=($(compgen -W "$commands" -- "$cur"))
@@ -132,6 +138,8 @@ const bashCompletion = `_awssso() {
       COMPREPLY=($(compgen -W "--profile --session --private" -- "$cur")) ;;
     refresh)
       COMPREPLY=($(compgen -W "--profile --session --private --force" -- "$cur")) ;;
+    recreate)
+      COMPREPLY=($(compgen -W "--role --session" -- "$cur")) ;;
     credential|console|whoami|delete|shell)
       COMPREPLY=($(compgen -W "--profile" -- "$cur")) ;;
     export)
@@ -150,7 +158,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $commands = @('login','create','profiles','export','refresh','whoami','console',
-                  'group','rename','delete','doctor','init',
+                  'group','recreate','rename','delete','doctor','init',
                   'completion','shell','help')
 
     $flagMap = @{
@@ -160,6 +168,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
         'credential' = @('--profile')
         'console'    = @('--profile')
         'whoami'     = @('--profile')
+        'recreate'   = @('--role','--session')
         'delete'     = @('--profile')
         'export'     = @('--profile','--format','--clipboard')
         'completion' = @('--shell','--install','--prompt')
@@ -216,7 +225,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
 `
 
 const fishCompletion = `# awssso fish shell completions
-set -l commands login create profiles export refresh whoami console group rename delete doctor init completion shell help
+set -l commands login create profiles export refresh whoami console group recreate rename delete doctor init completion shell help
 
 # Subcommands (only shown before a subcommand is typed)
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a login      -d "Authenticate via AWS SSO"
@@ -227,6 +236,7 @@ complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a refresh 
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a whoami     -d "Show current profile and token status"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a console    -d "Open AWS Console in browser"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a group      -d "Manage profile groups"
+complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a recreate   -d "Bulk-recreate profiles by name (auto-matches account and role)"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a rename     -d "Rename a profile"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a delete     -d "Delete one or more profiles"
 complete -c awssso -f -n "not __fish_seen_subcommand_from $commands" -a doctor     -d "Run config and token health check"

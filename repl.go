@@ -24,7 +24,7 @@ func isKnownCommand(cmd string) bool {
 var replCommands = []string{
 	"login", "create", "profiles", "export", "refresh",
 	"whoami", "console", "group",
-	"rename", "delete", "doctor", "init",
+	"recreate", "rename", "delete", "doctor", "init",
 	"completion", "shell", "help", "exit", "quit",
 }
 
@@ -40,6 +40,7 @@ var replCommandFlags = map[string][]string{
 	"profiles":   {"--group"},
 	"completion": {"--shell", "--install", "--prompt"},
 	"shell":      {"--profile"},
+	"recreate":   {"--role", "--session"},
 }
 
 var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process"}

@@ -2834,3 +2834,119 @@ func runShell(profileName string) {
 
 	fmt.Println()
 }
+
+// runRecreate bulk-creates profiles by name. For each name it:
+//  1. Searches AWS accounts for one whose name matches the profile name.
+//  2. Fetches roles for that account.
+//  3. Picks the role automatically — preferring the --role flag value when
+//     provided, then the only role when there is just one, then the first role.
+//  4. Saves the profile to ~/.aws/config using exactly the name given.
+func runRecreate(profileNames []string, defaultRole, sessionName string) {
+	if len(profileNames) == 0 {
+		printError("Usage: awssso recreate <profile> [<profile>...] [--role <role>] [--session <session>]")
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+
+	// Resolve a valid SSO token — prefer the specified session, fall back to any active one.
+	var validToken, validRegion, validSession string
+	if sessionName != "" {
+		mock := &AWSProfile{SSOSession: sessionName}
+		if t, r, e := resolveValidToken(ctx, mock, config); e == nil {
+			validToken, validRegion, validSession = t.AccessToken, r, sessionName
+		} else {
+			printError(fmt.Sprintf("Session %q is not active: %v", sessionName, e))
+			os.Exit(1)
+		}
+	} else {
+		for name := range config.Sessions {
+			mock := &AWSProfile{SSOSession: name}
+			if t, r, e := resolveValidToken(ctx, mock, config); e == nil {
+				validToken, validRegion, validSession = t.AccessToken, r, name
+				break
+			}
+		}
+	}
+	if validToken == "" {
+		printError("No active SSO session found. Run: awssso login")
+		os.Exit(1)
+	}
+
+	// Fetch all accounts once.
+	spinner := NewSpinner("Fetching AWS accounts")
+	spinner.Start()
+	accounts, err := fetchAccounts(ctx, validRegion, validToken)
+	if err != nil {
+		spinner.Stop(false, "Failed to fetch accounts")
+		printError(fmt.Sprintf("%v", err))
+		os.Exit(1)
+	}
+	spinner.Stop(true, fmt.Sprintf("Fetched %d accounts", len(accounts)))
+
+	sess := config.Sessions[validSession]
+	region := sess.SSORegion
+
+	printHeader(fmt.Sprintf("RECREATE %d PROFILE(S)", len(profileNames)))
+	if defaultRole != "" {
+		printInfo(fmt.Sprintf("Default role: %s%s%s", Bold, defaultRole, Reset))
+	}
+	fmt.Println()
+
+	created, failed := 0, 0
+	for _, profileName := range profileNames {
+		matched := findMatchingAccount(accounts, profileName)
+		if matched == nil {
+			fmt.Printf("  %s✗%s %-40s  no matching account found\n", Red, Reset, profileName)
+			failed++
+			continue
+		}
+
+		roles, err := fetchAccountRoles(ctx, validRegion, *matched.AccountId, validToken)
+		if err != nil || len(roles) == 0 {
+			fmt.Printf("  %s✗%s %-40s  could not fetch roles\n", Red, Reset, profileName)
+			failed++
+			continue
+		}
+
+		// Pick role: prefer --role match, then single role, then first role.
+		roleName := *roles[0].RoleName
+		if defaultRole != "" {
+			for _, r := range roles {
+				if strings.EqualFold(*r.RoleName, defaultRole) {
+					roleName = *r.RoleName
+					break
+				}
+			}
+		}
+
+		newProfile := &AWSProfile{
+			Name:         profileName,
+			SSOSession:   validSession,
+			SSOAccountID: *matched.AccountId,
+			SSORoleName:  roleName,
+			Region:       region,
+		}
+		if err := writeAWSProfile(profileName, newProfile); err != nil {
+			fmt.Printf("  %s✗%s %-40s  failed to save: %v\n", Red, Reset, profileName, err)
+			failed++
+			continue
+		}
+		fmt.Printf("  %s✓%s %-40s  %s / %s\n", Green, Reset, profileName, *matched.AccountName, roleName)
+		created++
+	}
+
+	fmt.Println()
+	if failed > 0 {
+		printWarning(fmt.Sprintf("%d created, %d failed.", created, failed))
+	} else {
+		printSuccess(fmt.Sprintf("All %d profile(s) created.", created))
+	}
+}
