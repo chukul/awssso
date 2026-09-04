@@ -84,7 +84,7 @@ _awssso() {
         export)
           _arguments \
             '--profile[AWS profile name]:profile:_awssso_profiles' \
-            '--format[Export format]:format:(env terraform docker json yaml kyaml credential_process)' \
+            '--format[Export format]:format:(env terraform docker json yaml kyaml credential_process profile)' \
             '--clipboard[Copy to clipboard]'
           ;;
         completion)
@@ -128,7 +128,7 @@ const bashCompletion = `_awssso() {
       return 0
       ;;
     --format)
-      COMPREPLY=($(compgen -W "env terraform docker json yaml kyaml credential_process" -- "$cur"))
+      COMPREPLY=($(compgen -W "env terraform docker json yaml kyaml credential_process profile" -- "$cur"))
       return 0
       ;;
   esac
@@ -204,7 +204,7 @@ Register-ArgumentCompleter -Native -CommandName @('awssso', 'awssso.exe') -Scrip
             }
         }
         '--format' {
-            return @('env','terraform','docker','json','yaml','kyaml','credential_process') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            return @('env','terraform','docker','json','yaml','kyaml','credential_process','profile') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
             }
         }
@@ -266,7 +266,7 @@ complete -c awssso -l force -d "Refresh even valid tokens" \
 # --format
 complete -c awssso -l format -r -d "Export format" \
   -n "__fish_seen_subcommand_from export" \
-  -a "env\t'Shell env vars' terraform\t'Terraform vars' docker\t'Docker env file' json\t'Raw JSON' yaml\t'YAML' kyaml\t'Kubernetes Secret' credential_process\t'credential_process line'"
+  -a "env\t'Shell env vars' terraform\t'Terraform vars' docker\t'Docker env file' json\t'Raw JSON' yaml\t'YAML' kyaml\t'Kubernetes Secret' credential_process\t'credential_process line' profile\t'AWS_PROFILE activation line'"
 
 # --clipboard
 complete -c awssso -l clipboard -d "Copy credentials to clipboard" \

@@ -2428,8 +2428,10 @@ func runExport(profileName string, format string, clipboard bool) {
 		exportFormat = FormatKYAML
 	case "credential_process", "credential":
 		exportFormat = FormatCredentialProcess
+	case "profile":
+		exportFormat = FormatProfile
 	default:
-		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, kyaml, credential_process", format))
+		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, kyaml, credential_process, profile", format))
 		os.Exit(1)
 	}
 
@@ -2449,6 +2451,28 @@ func runExport(profileName string, format string, clipboard bool) {
 		if profileName == "" {
 			return
 		}
+	}
+
+	// "profile" format — just outputs the AWS_PROFILE activation line.
+	// No credentials needed, works for any profile including [No SSO] ones.
+	if exportFormat == FormatProfile {
+		var output string
+		if runtime.GOOS == "windows" {
+			output = fmt.Sprintf(`$env:AWS_PROFILE="%s"`, profileName)
+		} else {
+			output = fmt.Sprintf(`export AWS_PROFILE="%s"`, profileName)
+		}
+		if clipboard {
+			if err := writeToClipboard(output); err != nil {
+				printError(fmt.Sprintf("Failed to copy to clipboard: %v", err))
+				fmt.Println(output)
+				os.Exit(1)
+			}
+			printSuccess(fmt.Sprintf("Copied to clipboard: %s", output))
+			return
+		}
+		fmt.Println(output)
+		return
 	}
 
 	creds, profile, err := resolveCredentials(ctx, profileName, config)

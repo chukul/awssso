@@ -194,7 +194,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sKEY OPTIONS:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--profile%s <name>    AWS profile name\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--group%s <tag>       Target a profile group (login, profiles)\n", Yellow, Reset)
-	fmt.Fprintf(os.Stderr, "  %s--format%s <fmt>      env · terraform · docker · json · yaml · kyaml\n", Yellow, Reset)
+	fmt.Fprintf(os.Stderr, "  %s--format%s <fmt>      env · terraform · docker · json · yaml · kyaml · profile\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--clipboard%s         Copy credentials to clipboard (export)\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--private%s           Open browser in incognito/InPrivate mode\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--force%s             Refresh even valid tokens (refresh)\n\n", Yellow, Reset)

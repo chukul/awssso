@@ -43,7 +43,7 @@ var replCommandFlags = map[string][]string{
 	"recreate":   {"--role", "--session"},
 }
 
-var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process"}
+var formatValues = []string{"env", "terraform", "docker", "json", "yaml", "kyaml", "credential_process", "profile"}
 var shellValues = []string{"zsh", "bash", "fish", "powershell"}
 
 // ── Tab completer ─────────────────────────────────────────────────────────────

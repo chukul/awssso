@@ -274,6 +274,7 @@ const (
 	FormatYAML              ExportFormat = "yaml"
 	FormatKYAML             ExportFormat = "kyaml"
 	FormatCredentialProcess ExportFormat = "credential_process"
+	FormatProfile           ExportFormat = "profile"
 )
 
 func exportCredentials(creds *CredentialResponse, format ExportFormat) string {
