@@ -1130,7 +1130,7 @@ func runConsole(profileName string) {
 
 	// If no explicit --profile was given, show interactive profile picker.
 	if profileName == "" {
-		profileName = pickProfileForConsole(config)
+		profileName = pickProfileForConsole(config, false)
 		if profileName == "" {
 			return
 		}
@@ -1208,10 +1208,11 @@ func runConsole(profileName string) {
 	}
 }
 
-// pickProfileForConsole shows a grouped, interactive profile picker for the console command.
-// Displays session status (Active/Expired/Not Logged In) for each profile.
+// pickProfileForConsole shows a grouped, interactive profile picker.
+// When activeOnly is true only profiles with an Active SSO token are shown —
+// used by export so users are never offered a profile that needs login first.
 // Returns the selected profile name, or empty string if cancelled.
-func pickProfileForConsole(config *AWSConfig) string {
+func pickProfileForConsole(config *AWSConfig, activeOnly bool) string {
 	type profileRow struct {
 		name      string
 		id        string
@@ -1242,6 +1243,22 @@ func pickProfileForConsole(config *AWSConfig) string {
 			status:    status,
 			remaining: remaining,
 		})
+	}
+
+	// For credential export: drop everything that isn't immediately usable.
+	if activeOnly {
+		var active []profileRow
+		for _, r := range allRows {
+			if r.status == "Active" {
+				active = append(active, r)
+			}
+		}
+		if len(active) == 0 {
+			printWarning("No active sessions found.")
+			printInfo("Run 'awssso login' or 'awssso refresh' to authenticate first.")
+			return ""
+		}
+		allRows = active
 	}
 
 	if len(allRows) == 0 {
@@ -2444,10 +2461,11 @@ func runExport(profileName string, format string, clipboard bool) {
 		os.Exit(1)
 	}
 
-	// No --profile given → show interactive picker so the user can choose
-	// from all configured profiles rather than silently using $AWS_PROFILE.
+	// No --profile given → show interactive picker.
+	// For credential formats show only Active profiles; for --format profile
+	// any profile is valid (no credentials needed).
 	if profileName == "" {
-		profileName = pickProfileForConsole(config)
+		profileName = pickProfileForConsole(config, exportFormat != FormatProfile)
 		if profileName == "" {
 			return
 		}
