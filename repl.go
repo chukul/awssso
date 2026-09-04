@@ -451,6 +451,19 @@ func runBasicREPL(binaryPath string) {
 						redraw()
 					}
 
+				case ch == 27 && i+1 < n && b[i+1] == 27: // double-ESC: ignore second ESC
+					i++ // skip the second ESC byte
+
+				case ch == 27 && (i+2 >= n || (b[i+1] != '[' && b[i+1] != 'O')): // bare ESC — clear line
+					if len(buf) > 0 {
+						if cursor > 0 {
+							fmt.Printf("\033[%dD", cursor)
+						}
+						fmt.Print("\033[K")
+						buf = buf[:0]
+						cursor = 0
+					}
+
 				case ch == 27 && i+2 < n && (b[i+1] == '[' || b[i+1] == 'O'): // Escape sequence
 					// Handles both ANSI mode (\x1b[A) and application cursor mode (\x1bOA).
 					prefix := b[i+1]
