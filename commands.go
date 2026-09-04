@@ -2831,7 +2831,13 @@ func runShell(profileName string) {
 	var args []string
 
 	if runtime.GOOS == "windows" {
-		shell = "powershell.exe"
+		// Prefer legacy powershell.exe (always present on Windows); fall back
+		// to pwsh (PowerShell 7+) on systems where only the newer version is installed.
+		if _, err := exec.LookPath("powershell.exe"); err == nil {
+			shell = "powershell.exe"
+		} else {
+			shell = "pwsh"
+		}
 		args = []string{}
 	} else {
 		shell = os.Getenv("SHELL")

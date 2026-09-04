@@ -109,11 +109,11 @@ func showProductionWarning(profile *AWSProfile) bool {
 		Bold, profile.Name, Reset,
 		profile.SSOAccountID, profile.SSORoleName)
 	fmt.Println()
-	printPrompt("Continue? (y/N): ")
-
-	var response string
-	fmt.Scanln(&response)
-
+	response, ok := readlineInput(fmt.Sprintf("%s?%s Continue? (y/N): ", Yellow, Reset))
+	if !ok {
+		printInfo("Canceled")
+		return false
+	}
 	response = strings.ToLower(strings.TrimSpace(response))
 	if response != "yes" && response != "y" {
 		printInfo("Canceled")
