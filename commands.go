@@ -1130,7 +1130,7 @@ func runConsole(profileName string) {
 
 	// If no explicit --profile was given, show interactive profile picker.
 	if profileName == "" {
-		profileName = pickProfileForConsole(config)
+		profileName = pickProfileForConsole(config, false)
 		if profileName == "" {
 			return
 		}
@@ -1208,10 +1208,11 @@ func runConsole(profileName string) {
 	}
 }
 
-// pickProfileForConsole shows a grouped, interactive profile picker for the console command.
-// Displays session status (Active/Expired/Not Logged In) for each profile.
+// pickProfileForConsole shows a grouped, interactive profile picker.
+// When activeOnly is true only profiles with an Active SSO token are shown —
+// used by export so users are never offered a profile that needs login first.
 // Returns the selected profile name, or empty string if cancelled.
-func pickProfileForConsole(config *AWSConfig) string {
+func pickProfileForConsole(config *AWSConfig, activeOnly bool) string {
 	type profileRow struct {
 		name      string
 		id        string
@@ -1242,6 +1243,22 @@ func pickProfileForConsole(config *AWSConfig) string {
 			status:    status,
 			remaining: remaining,
 		})
+	}
+
+	// For credential export: drop everything that isn't immediately usable.
+	if activeOnly {
+		var active []profileRow
+		for _, r := range allRows {
+			if r.status == "Active" {
+				active = append(active, r)
+			}
+		}
+		if len(active) == 0 {
+			printWarning("No active sessions found.")
+			printInfo("Run 'awssso login' or 'awssso refresh' to authenticate first.")
+			return ""
+		}
+		allRows = active
 	}
 
 	if len(allRows) == 0 {
@@ -2428,8 +2445,10 @@ func runExport(profileName string, format string, clipboard bool) {
 		exportFormat = FormatKYAML
 	case "credential_process", "credential":
 		exportFormat = FormatCredentialProcess
+	case "profile":
+		exportFormat = FormatProfile
 	default:
-		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, kyaml, credential_process", format))
+		printError(fmt.Sprintf("Unknown format %q. Supported: env, terraform, docker, json, yaml, kyaml, credential_process, profile", format))
 		os.Exit(1)
 	}
 
@@ -2442,13 +2461,36 @@ func runExport(profileName string, format string, clipboard bool) {
 		os.Exit(1)
 	}
 
-	// No --profile given → show interactive picker so the user can choose
-	// from all configured profiles rather than silently using $AWS_PROFILE.
+	// No --profile given → show interactive picker.
+	// For credential formats show only Active profiles; for --format profile
+	// any profile is valid (no credentials needed).
 	if profileName == "" {
-		profileName = pickProfileForConsole(config)
+		profileName = pickProfileForConsole(config, exportFormat != FormatProfile)
 		if profileName == "" {
 			return
 		}
+	}
+
+	// "profile" format — just outputs the AWS_PROFILE activation line.
+	// No credentials needed, works for any profile including [No SSO] ones.
+	if exportFormat == FormatProfile {
+		var output string
+		if runtime.GOOS == "windows" {
+			output = fmt.Sprintf(`$env:AWS_PROFILE="%s"`, profileName)
+		} else {
+			output = fmt.Sprintf(`export AWS_PROFILE="%s"`, profileName)
+		}
+		if clipboard {
+			if err := writeToClipboard(output); err != nil {
+				printError(fmt.Sprintf("Failed to copy to clipboard: %v", err))
+				fmt.Println(output)
+				os.Exit(1)
+			}
+			printSuccess(fmt.Sprintf("Copied to clipboard: %s", output))
+			return
+		}
+		fmt.Println(output)
+		return
 	}
 
 	creds, profile, err := resolveCredentials(ctx, profileName, config)
@@ -2807,7 +2849,13 @@ func runShell(profileName string) {
 	var args []string
 
 	if runtime.GOOS == "windows" {
-		shell = "powershell.exe"
+		// Prefer legacy powershell.exe (always present on Windows); fall back
+		// to pwsh (PowerShell 7+) on systems where only the newer version is installed.
+		if _, err := exec.LookPath("powershell.exe"); err == nil {
+			shell = "powershell.exe"
+		} else {
+			shell = "pwsh"
+		}
 		args = []string{}
 	} else {
 		shell = os.Getenv("SHELL")
@@ -2833,4 +2881,120 @@ func runShell(profileName string) {
 	_ = cmd.Run()
 
 	fmt.Println()
+}
+
+// runRecreate bulk-creates profiles by name. For each name it:
+//  1. Searches AWS accounts for one whose name matches the profile name.
+//  2. Fetches roles for that account.
+//  3. Picks the role automatically — preferring the --role flag value when
+//     provided, then the only role when there is just one, then the first role.
+//  4. Saves the profile to ~/.aws/config using exactly the name given.
+func runRecreate(profileNames []string, defaultRole, sessionName string) {
+	if len(profileNames) == 0 {
+		printError("Usage: awssso recreate <profile> [<profile>...] [--role <role>] [--session <session>]")
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	config, err := loadAWSConfig()
+	if err != nil {
+		printError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+
+	// Resolve a valid SSO token — prefer the specified session, fall back to any active one.
+	var validToken, validRegion, validSession string
+	if sessionName != "" {
+		mock := &AWSProfile{SSOSession: sessionName}
+		if t, r, e := resolveValidToken(ctx, mock, config); e == nil {
+			validToken, validRegion, validSession = t.AccessToken, r, sessionName
+		} else {
+			printError(fmt.Sprintf("Session %q is not active: %v", sessionName, e))
+			os.Exit(1)
+		}
+	} else {
+		for name := range config.Sessions {
+			mock := &AWSProfile{SSOSession: name}
+			if t, r, e := resolveValidToken(ctx, mock, config); e == nil {
+				validToken, validRegion, validSession = t.AccessToken, r, name
+				break
+			}
+		}
+	}
+	if validToken == "" {
+		printError("No active SSO session found. Run: awssso login")
+		os.Exit(1)
+	}
+
+	// Fetch all accounts once.
+	spinner := NewSpinner("Fetching AWS accounts")
+	spinner.Start()
+	accounts, err := fetchAccounts(ctx, validRegion, validToken)
+	if err != nil {
+		spinner.Stop(false, "Failed to fetch accounts")
+		printError(fmt.Sprintf("%v", err))
+		os.Exit(1)
+	}
+	spinner.Stop(true, fmt.Sprintf("Fetched %d accounts", len(accounts)))
+
+	sess := config.Sessions[validSession]
+	region := sess.SSORegion
+
+	printHeader(fmt.Sprintf("RECREATE %d PROFILE(S)", len(profileNames)))
+	if defaultRole != "" {
+		printInfo(fmt.Sprintf("Default role: %s%s%s", Bold, defaultRole, Reset))
+	}
+	fmt.Println()
+
+	created, failed := 0, 0
+	for _, profileName := range profileNames {
+		matched := findMatchingAccount(accounts, profileName)
+		if matched == nil {
+			fmt.Printf("  %s✗%s %-40s  no matching account found\n", Red, Reset, profileName)
+			failed++
+			continue
+		}
+
+		roles, err := fetchAccountRoles(ctx, validRegion, *matched.AccountId, validToken)
+		if err != nil || len(roles) == 0 {
+			fmt.Printf("  %s✗%s %-40s  could not fetch roles\n", Red, Reset, profileName)
+			failed++
+			continue
+		}
+
+		// Pick role: prefer --role match, then single role, then first role.
+		roleName := *roles[0].RoleName
+		if defaultRole != "" {
+			for _, r := range roles {
+				if strings.EqualFold(*r.RoleName, defaultRole) {
+					roleName = *r.RoleName
+					break
+				}
+			}
+		}
+
+		newProfile := &AWSProfile{
+			Name:         profileName,
+			SSOSession:   validSession,
+			SSOAccountID: *matched.AccountId,
+			SSORoleName:  roleName,
+			Region:       region,
+		}
+		if err := writeAWSProfile(profileName, newProfile); err != nil {
+			fmt.Printf("  %s✗%s %-40s  failed to save: %v\n", Red, Reset, profileName, err)
+			failed++
+			continue
+		}
+		fmt.Printf("  %s✓%s %-40s  %s / %s\n", Green, Reset, profileName, *matched.AccountName, roleName)
+		created++
+	}
+
+	fmt.Println()
+	if failed > 0 {
+		printWarning(fmt.Sprintf("%d created, %d failed.", created, failed))
+	} else {
+		printSuccess(fmt.Sprintf("All %d profile(s) created.", created))
+	}
 }

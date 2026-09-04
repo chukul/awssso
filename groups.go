@@ -126,6 +126,25 @@ func allGroupTags() []string {
 //	awssso group <profile> <tag> --add    — add profile to group
 //	awssso group <profile> <tag> --remove — remove profile from group
 func runGroup(args []string, add, remove bool, profileFlag string) {
+	// The Go flag parser stops at the first non-flag positional argument, so
+	// --add/--remove that appears after a positional arg (e.g. "group favourites --add p1 p2")
+	// is never captured by the FlagSet and arrives here as a raw string in args.
+	// Strip those strings out and set the corresponding bool.
+	if !add && !remove {
+		var filtered []string
+		for _, a := range args {
+			switch a {
+			case "--add":
+				add = true
+			case "--remove":
+				remove = true
+			default:
+				filtered = append(filtered, a)
+			}
+		}
+		args = filtered
+	}
+
 	// --profile <name> with a single positional tag is equivalent to
 	// group <tag> <profile> --add|--remove
 	if profileFlag != "" && (add || remove) {

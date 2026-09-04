@@ -11,7 +11,7 @@ A fast, single-binary CLI tool for AWS SSO authentication and credential managem
 - **Interactive account/role switching** — auto-matches account by name; auto-configures missing profiles without leaving the command
 - **`credential_process` compatible** — use as a credential helper in `~/.aws/config`
 - **AWS Console federation** — open the Management Console pre-authenticated
-- **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`); format auto-detected from working directory
+- **Credential export** — Terraform, Docker, JSON, YAML, shell env vars, Kubernetes Secret (`kyaml`), `AWS_PROFILE` activation line (`profile`); format auto-detected from working directory
 - **Copy to clipboard** — `awssso export --clipboard` copies credentials; auto-detects Terraform/Docker context
 - **Smart token refresh** — OIDC `refresh_token` when available, auto-re-login fallback; `whoami` refreshes silently
 - **Profile groups** — tag profiles (`awssso group`), filter lists by tag (`profiles --group eks`), create and delete groups
@@ -71,6 +71,7 @@ go build -o awssso.exe .
 | Command | Description |
 |---------|-------------|
 | `group` | Tag profiles into groups; `profiles --group <tag>` filters |
+| `recreate` | Bulk-recreate profiles by name — auto-matches account and role (`--role`, `--session`) |
 | `rename` | Rename a profile in `~/.aws/config` |
 | `delete` | Delete profiles (`delete my-profile` or `--profile my-profile`) |
 | `doctor` | Config and token health check |
@@ -95,7 +96,9 @@ go build -o awssso.exe .
 | `--group <tag>` | `login`, `profiles` | Target a profile group |
 | `--session <name>` | `login`, `create`, `refresh` | Target a specific SSO session |
 | `--private` | `login`, `create`, `refresh` | Open browser in incognito/InPrivate mode |
-| `--format <fmt>` | `export` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
+| `--format <fmt>` | `export` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process`, `profile` |
+| `--role <name>` | `recreate` | Default role to use when multiple roles exist for an account |
+| `--session <name>` | `recreate` | SSO session to use for account lookup |
 | `--clipboard` | `export` | Copy credentials to clipboard instead of printing |
 | `--force` | `refresh` | Refresh even valid tokens |
 
@@ -341,7 +344,7 @@ awssso completion --shell bash --install
 | `awssso login --<TAB>` | `--profile`, `--session`, `--private` |
 | `awssso login --profile <TAB>` | Profile names from `~/.aws/config` |
 | `awssso login --session <TAB>` | Session names from `~/.aws/config` |
-| `awssso export --format <TAB>` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process` |
+| `awssso export --format <TAB>` | `env`, `terraform`, `docker`, `json`, `yaml`, `kyaml`, `credential_process`, `profile` |
 | `awssso refresh --<TAB>` | `--profile`, `--session`, `--private`, `--force` |
 
 ---
@@ -368,6 +371,9 @@ awssso export --profile my-profile --format yaml
 
 # credential_process config line
 awssso export --profile my-profile --format credential_process
+
+# AWS_PROFILE activation line (no credentials fetched — works for any profile)
+awssso export --profile my-profile --format profile
 ```
 
 ### Windows (PowerShell)
@@ -384,7 +390,12 @@ awssso export --profile my-profile --format docker
 
 # Raw JSON
 awssso export --profile my-profile --format json
+
+# AWS_PROFILE activation line — outputs $env:AWS_PROFILE syntax on Windows
+awssso export --profile my-profile --format profile
 ```
+
+> **Export picker** — running `export` with no `--profile` shows only profiles with an active SSO token. Expired or unconfigured profiles are hidden. Run `awssso login` or `awssso refresh` first if needed. (`--format profile` shows all profiles since it needs no credentials.)
 
 ---
 
@@ -530,7 +541,7 @@ awssso › exit
 
 All commands work exactly as normal, including interactive ones like `create`, `profiles`, and `delete`. Type `exit`, `quit`, or press `Ctrl+D` to leave.
 
-> **Keyboard shortcuts:** `↑` / `↓` navigate history · `Tab` completes commands, flags, and profile/session names — when several matches exist it opens an interactive popup you navigate with `↑` / `↓` (or `Tab` / `Shift+Tab`) and select with `Enter` (`Esc` cancels) · `Ctrl+A` / `Ctrl+E` go to line start/end · `Ctrl+C` clears the current line · `Ctrl+D` exits.
+> **Keyboard shortcuts:** `↑` / `↓` navigate history · `←` / `→` move cursor · `Tab` completes commands, flags, and profile/session names — multiple matches open an interactive popup (`↑`/`↓` or `Tab`/`Shift+Tab` to move, `Enter` to pick, `Esc` to cancel) · `Esc` clears the current input line · `Ctrl+A` / `Ctrl+E` go to line start/end · `Ctrl+C` clears the line · `Ctrl+D` exits.
 
 ### Spawning a System Shell from the REPL
 
@@ -583,6 +594,29 @@ awssso completion --prompt --install   # auto-detects shell and patches the conf
 Output: `[🔴 prod]`, `[🟡 oat]`, `[🟢 dev]`, etc. — nothing if `$AWS_PROFILE` is not set.
 
 The badge updates live in the `awssso` interactive shell prompt as soon as you switch profiles. Multiple terminal windows each track their own active profile independently — switching in one window never affects another.
+
+### `awssso recreate` — Bulk profile creation
+
+Recreates multiple profiles in one command. For each name it finds the matching AWS account automatically, picks the role (auto-selected if only one exists), and saves the profile using exactly the name you provided — no account search needed.
+
+```bash
+# Recreate several profiles at once
+awssso recreate accor-acp-eks-hyb-dev accor-acp-eks-hyb-oat accor-acp-eks-hyb-pro
+
+# Pin a default role (used when multiple roles are available)
+awssso recreate --role AWS-EKS-CIP-Admin accor-acp-eks-hyb-dev accor-acp-eks-hyb-oat
+
+# Target a specific SSO identity
+awssso recreate --session my-session accor-acp-eks-hyb-dev
+```
+
+Output:
+```
+  ✓ accor-acp-eks-hyb-dev       → accor-acp-eks-hyb / AWS-EKS-CIP-Admin
+  ✓ accor-acp-eks-hyb-oat       → accor-acp-eks-hyb-oat / AWS-EKS-CIP-Admin
+  ✗ accor-unknown-profile       no matching account found
+✓ 2 created, 1 failed.
+```
 
 ### `awssso rename` — Rename a profile
 

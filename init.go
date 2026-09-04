@@ -119,7 +119,6 @@ func runInit() {
 	}
 	spinner.Stop(true, fmt.Sprintf("Found %d account(s)", len(accounts)))
 
-	scanner := newStdinScanner()
 	selectedAccount := selectAccount(accounts)
 	acctID := *selectedAccount.AccountId
 	acctName := *selectedAccount.AccountName
@@ -142,11 +141,11 @@ func runInit() {
 
 	var roleName string
 	for {
-		printPrompt(fmt.Sprintf("Select a role %s(1-%d)%s: ", Dim, len(roles), Reset))
-		if !scanner.Scan() {
+		text, ok := readlineInput(fmt.Sprintf("%s?%s Select a role %s(1-%d)%s: ",
+			Yellow, Reset, Dim, len(roles), Reset))
+		if !ok {
 			os.Exit(1)
 		}
-		text := strings.TrimSpace(scanner.Text())
 		if val, convErr := parseInt(text); convErr == nil && val >= 1 && val <= len(roles) {
 			roleName = *roles[val-1].RoleName
 			break

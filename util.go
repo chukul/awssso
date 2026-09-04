@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sso/types"
-	"github.com/chzyer/readline"
+	"golang.org/x/term"
 )
 
 // formatDuration formats a duration into a human-readable string like "2h 30m" or "1d 5h 10m".
@@ -122,14 +122,26 @@ func suggestProfiles(target string, config *AWSConfig, maxSuggestions int) []str
 	return suggestions
 }
 
-// readlineInput displays a prompt and reads one line with full arrow-key and
-// editing support (left/right cursor, backspace, Ctrl+A/E). Falls back to a
-// plain bufio read if readline cannot enter raw mode (e.g. piped stdin).
+// readlineInput displays a prompt and reads one line in raw mode with basic
+// line editing. Esc, Ctrl+C, and Ctrl+D all cancel and return ("", false).
+// Falls back to a plain bufio read when stdin is not a terminal.
 func readlineInput(prompt string) (string, bool) {
-	rl, err := readline.New(prompt)
+	fmt.Print(prompt)
+
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		// Non-interactive stdin (piped) — plain line read
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(line), true
+	}
+
+	oldState, err := term.MakeRaw(fd)
 	if err != nil {
-		// Fallback for non-interactive stdin
-		fmt.Print(prompt)
+		// Can't enter raw mode — fall back
 		reader := bufio.NewReader(os.Stdin)
 		line, readErr := reader.ReadString('\n')
 		if readErr != nil {
@@ -137,13 +149,108 @@ func readlineInput(prompt string) (string, bool) {
 		}
 		return strings.TrimSpace(line), true
 	}
-	defer rl.Close()
 
-	line, err := rl.Readline()
-	if err != nil {
-		return "", false
+	var buf []byte
+	cursor := 0
+	b := make([]byte, 32)
+
+	redraw := func() {
+		tail := buf[cursor:]
+		os.Stdout.Write([]byte("\033[K"))
+		os.Stdout.Write(tail)
+		if len(tail) > 0 {
+			fmt.Printf("\033[%dD", len(tail))
+		}
 	}
-	return strings.TrimSpace(line), true
+
+	for {
+		n, err := os.Stdin.Read(b)
+		if err != nil || n == 0 {
+			term.Restore(fd, oldState)
+			fmt.Println()
+			return "", false
+		}
+
+		i := 0
+		for i < n {
+			ch := b[i]
+			switch {
+			case ch == '\r' || ch == '\n': // Enter
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return strings.TrimSpace(string(buf)), true
+
+			case ch == 27 && i+2 < n && (b[i+1] == '[' || b[i+1] == 'O'): // Arrow keys
+				code := b[i+2]
+				i += 2
+				switch code {
+				case 'D': // Left
+					if cursor > 0 {
+						cursor--
+						fmt.Print("\033[D")
+					}
+				case 'C': // Right
+					if cursor < len(buf) {
+						cursor++
+						fmt.Print("\033[C")
+					}
+				case 'H', '1', '7': // Home
+					if cursor > 0 {
+						fmt.Printf("\033[%dD", cursor)
+						cursor = 0
+					}
+				case 'F', '4', '8': // End
+					if cursor < len(buf) {
+						fmt.Printf("\033[%dC", len(buf)-cursor)
+						cursor = len(buf)
+					}
+				}
+
+			case ch == 27: // Esc — cancel
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return "", false
+
+			case ch == 3 || ch == 4: // Ctrl+C / Ctrl+D — cancel
+				term.Restore(fd, oldState)
+				fmt.Println()
+				return "", false
+
+			case ch == 1: // Ctrl+A — go to start
+				if cursor > 0 {
+					fmt.Printf("\033[%dD", cursor)
+					cursor = 0
+				}
+
+			case ch == 5: // Ctrl+E — go to end
+				if cursor < len(buf) {
+					fmt.Printf("\033[%dC", len(buf)-cursor)
+					cursor = len(buf)
+				}
+
+			case ch == 127 || ch == 8: // Backspace
+				if cursor > 0 {
+					buf = append(buf[:cursor-1], buf[cursor:]...)
+					cursor--
+					fmt.Print("\b")
+					redraw()
+				}
+
+			default:
+				if ch >= 32 { // Printable
+					newBuf := make([]byte, len(buf)+1)
+					copy(newBuf, buf[:cursor])
+					newBuf[cursor] = ch
+					copy(newBuf[cursor+1:], buf[cursor:])
+					buf = newBuf
+					cursor++
+					os.Stdout.Write([]byte{ch})
+					redraw()
+				}
+			}
+			i++
+		}
+	}
 }
 
 // newStdinScanner returns a bufio.Scanner reading from os.Stdin.

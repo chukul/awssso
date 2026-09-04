@@ -52,6 +52,10 @@ func main() {
 	shellCmd := flag.NewFlagSet("shell", flag.ExitOnError)
 	shellProfile := shellCmd.String("profile", "", "AWS profile name (uses active profile if omitted)")
 
+	recreateCmd := flag.NewFlagSet("recreate", flag.ExitOnError)
+	recreateRole := recreateCmd.String("role", "", "Default role name to use when multiple roles are available")
+	recreateSession := recreateCmd.String("session", "", "SSO session to use (defaults to any active session)")
+
 	renameCmd := flag.NewFlagSet("rename", flag.ExitOnError)
 
 	groupCmd := flag.NewFlagSet("group", flag.ExitOnError)
@@ -108,6 +112,9 @@ func main() {
 		runDoctor()
 	case "init":
 		runInit()
+	case "recreate":
+		_ = recreateCmd.Parse(os.Args[2:])
+		runRecreate(recreateCmd.Args(), *recreateRole, *recreateSession)
 	case "rename":
 		_ = renameCmd.Parse(os.Args[2:])
 		args := renameCmd.Args()
@@ -174,6 +181,7 @@ func printUsage() {
 
 	fmt.Fprintf(os.Stderr, "%sMANAGEMENT:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %sgroup%s       Manage profile groups (--add, --remove; profiles --group <tag>)\n", Cyan, Reset)
+	fmt.Fprintf(os.Stderr, "  %srecreate%s    Recreate profiles by name — auto-matches account and role\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %srename%s      Rename a profile in ~/.aws/config\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdelete%s      Delete one or more profiles\n", Cyan, Reset)
 	fmt.Fprintf(os.Stderr, "  %sdoctor%s      Run a config and token health check\n", Cyan, Reset)
@@ -186,7 +194,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sKEY OPTIONS:%s\n", Bold, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--profile%s <name>    AWS profile name\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--group%s <tag>       Target a profile group (login, profiles)\n", Yellow, Reset)
-	fmt.Fprintf(os.Stderr, "  %s--format%s <fmt>      env · terraform · docker · json · yaml · kyaml\n", Yellow, Reset)
+	fmt.Fprintf(os.Stderr, "  %s--format%s <fmt>      env · terraform · docker · json · yaml · kyaml · profile\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--clipboard%s         Copy credentials to clipboard (export)\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--private%s           Open browser in incognito/InPrivate mode\n", Yellow, Reset)
 	fmt.Fprintf(os.Stderr, "  %s--force%s             Refresh even valid tokens (refresh)\n\n", Yellow, Reset)

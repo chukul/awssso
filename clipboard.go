@@ -71,7 +71,7 @@ func runCopy(profileName string, format string) {
 	}
 
 	if profileName == "" {
-		profileName = pickProfileForConsole(config)
+		profileName = pickProfileForConsole(config, true)
 		if profileName == "" {
 			return
 		}
