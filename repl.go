@@ -451,7 +451,9 @@ func runBasicREPL(binaryPath string) {
 						redraw()
 					}
 
-				case ch == 27 && i+2 < n && b[i+1] == '[': // Escape sequence
+				case ch == 27 && i+2 < n && (b[i+1] == '[' || b[i+1] == 'O'): // Escape sequence
+					// Handles both ANSI mode (\x1b[A) and application cursor mode (\x1bOA).
+					prefix := b[i+1]
 					code := b[i+2]
 					i += 2
 					switch code {
@@ -479,17 +481,17 @@ func runBasicREPL(binaryPath string) {
 							replaceContent(nil)
 						}
 					case '1', '7': // Home (^[[1~ or ^[[7~)
-						if cursor > 0 {
+						if prefix == '[' && cursor > 0 {
 							fmt.Printf("\033[%dD", cursor)
 							cursor = 0
 						}
 					case '4', '8': // End (^[[4~ or ^[[8~)
-						if cursor < len(buf) {
+						if prefix == '[' && cursor < len(buf) {
 							fmt.Printf("\033[%dC", len(buf)-cursor)
 							cursor = len(buf)
 						}
 					case '3': // Delete key (^[[3~)
-						if cursor < len(buf) {
+						if prefix == '[' && cursor < len(buf) {
 							buf = append(buf[:cursor], buf[cursor+1:]...)
 							redraw()
 						}
@@ -713,12 +715,13 @@ func selectFromMenu(options []string, promptLine string) (string, bool) {
 		}
 
 		// Handle escape / arrow sequences.
+		// Both ANSI mode (\x1b[A) and application cursor mode (\x1bOA) are handled.
 		if b[0] == 27 { // ESC
 			if n == 1 {
 				clear()
 				return "", false // bare Esc cancels
 			}
-			if n >= 3 && b[1] == '[' {
+			if n >= 3 && (b[1] == '[' || b[1] == 'O') {
 				switch b[2] {
 				case 'A': // Up
 					sel = (sel - 1 + len(options)) % len(options)
@@ -728,10 +731,15 @@ func selectFromMenu(options []string, promptLine string) (string, bool) {
 					sel = (sel + 1) % len(options)
 					draw()
 					continue
-				case 'Z': // Shift+Tab
-					sel = (sel - 1 + len(options)) % len(options)
-					draw()
-					continue
+				case 'Z': // Shift+Tab (only with [ prefix)
+					if b[1] == '[' {
+						sel = (sel - 1 + len(options)) % len(options)
+						draw()
+						continue
+					}
+				case 'C', 'D': // Left / Right — cancel menu, let the key act on the line
+					clear()
+					return "", false
 				}
 			}
 			continue
