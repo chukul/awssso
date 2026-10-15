@@ -6,6 +6,24 @@ One version entry is added per merge to `main`, written only when explicitly req
 
 ---
 
+## v4.2.0 — 2026-10-15
+
+### Features
+- **`awssso_environment` profile override** — set `awssso_environment = production` (or `nonprod`, `staging`, `oat`, `integration`, `sandbox`, `development`) in a `[profile]` section of `~/.aws/config` to fix an account's environment regardless of its name; applies to profile lists, `whoami`, the REPL prompt and `awssso prompt`; invalid values fall back to name detection; the AWS CLI ignores the key and re-saving a profile keeps an existing override
+- **Non-production environment 🔵** — `nopro`, `nonprod` and `non-prod` profiles now get their own Blue 🔵 tier instead of being treated as production
+
+### Fixes
+- **Environment detection matches whole words** — keywords were matched as substrings, so `accor-sftpdelivery-oat` and `-dev` showed as production 🔴 because `delivery` contains `live`, and `nopro` matched `pro`; names are now split on `-`, `_`, `.`, spaces and camelCase and matched word for word (trailing digits ignored, so `dev1` still matches `dev`)
+- **`pre-prod` is staging** — it previously resolved to production because it contains `prod`
+- **Prompt badge uses the same detection as profile lists** — the REPL prompt and `awssso prompt` looked at the profile name only; they now also honour the role name and the override
+
+### Notes
+- A keyword glued inside a longer word no longer counts (e.g. `devops`, `accorsftpoat`); such profiles show as unknown (Cyan) — rename the profile or set `awssso_environment`
+- `nopro` accounts no longer trigger the production confirmation prompt
+- Accounts that only looked like production by accident, such as `accor-sftpdelivery1`, need `awssso_environment = production` to stay production
+
+---
+
 ## v4.1.0 — 2026-09-03
 
 ### Features

@@ -21,6 +21,7 @@ type AWSProfile struct {
 	SSOAccountID string
 	SSORoleName  string
 	Region       string
+	Environment  string // Optional: awssso_environment override for environment detection
 }
 
 // SSOSession represents a [sso-session ...] section in ~/.aws/config.
@@ -193,6 +194,8 @@ func loadAWSConfigFromPath(configPath string) (*AWSConfig, error) {
 				currentProfile.SSORoleName = val
 			case "region":
 				currentProfile.Region = val
+			case "awssso_environment":
+				currentProfile.Environment = strings.ToLower(val)
 			}
 		} else if currentSession != nil {
 			switch key {
@@ -293,6 +296,21 @@ func writeAWSProfile(profileName string, newProfile *AWSProfile) error {
 		}
 	}
 
+	// Rewriting an existing block must not drop a hand-set awssso_environment override.
+	envOverride := newProfile.Environment
+	if envOverride == "" && profileIndex != -1 {
+		for i := profileIndex + 1; i < len(lines); i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+				break
+			}
+			if key, val, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(key) == "awssso_environment" {
+				envOverride = strings.TrimSpace(val)
+				break
+			}
+		}
+	}
+
 	var profileLines []string
 	profileLines = append(profileLines, targetHeader)
 	if newProfile.SSOSession != "" {
@@ -312,6 +330,9 @@ func writeAWSProfile(profileName string, newProfile *AWSProfile) error {
 	}
 	if newProfile.Region != "" {
 		profileLines = append(profileLines, fmt.Sprintf("region = %s", newProfile.Region))
+	}
+	if envOverride != "" {
+		profileLines = append(profileLines, fmt.Sprintf("awssso_environment = %s", envOverride))
 	}
 
 	// Fix #8: Quote paths and profile names to handle spaces correctly

@@ -199,6 +199,20 @@ credential_process = "C:\path\to\awssso.exe" credential --profile "my-profile"
 
 Tokens are auto-refreshed transparently. No manual login needed after initial setup.
 
+### Overriding the detected environment (optional)
+
+Environments are normally detected from the profile name (see [Environment Colors](#environment-colors)). For an account whose name carries no environment keyword, set `awssso_environment` in its profile section. The override wins over name detection. The AWS CLI and SDKs ignore this key. The file location and syntax are the same on macOS, Linux and Windows (`~/.aws/config` / `%USERPROFILE%\.aws\config`).
+
+```ini
+[profile accor-sftpdelivery1]
+sso_session = my-sso
+sso_account_id = 123456789012
+sso_role_name = AdministratorAccess
+awssso_environment = production
+```
+
+Valid values: `production`, `nonprod`, `staging`, `oat`, `integration`, `sandbox`, `development`. Any other value is ignored and name detection is used instead.
+
 ---
 
 ## Activating a Profile
@@ -494,12 +508,13 @@ Without `--private`, your browser opens with existing cookies and may auto-authe
 
 ## Environment Colors
 
-Profiles are automatically color-coded based on keywords in the profile or role name:
+Profiles are automatically color-coded based on whole-word keywords in the profile or role name. Names are split on `-`, `_`, `.`, spaces and camelCase, and trailing digits are ignored (`dev1` matches `dev`). A keyword inside a longer word does not match: `delivery` is not `live`, and `nopro` is not `pro`. Checks run top to bottom and the first match wins. To set an environment explicitly, use the [`awssso_environment` override](#overriding-the-detected-environment-optional), which takes priority over keyword detection.
 
 | Color | Environment | Detected Keywords |
 |-------|-------------|-------------------|
 | 🔴 Red | Production | `prod`, `prd`, `pro`, `live`, `master` |
-| 🟡 Yellow | Staging | `staging`, `stage`, `stg`, `uat`, `preprod` |
+| 🔵 Blue | Non-production | `nopro`, `nonprod`, `non-prod` |
+| 🟡 Yellow | Staging | `staging`, `stage`, `stg`, `uat`, `preprod`, `pre-prod` |
 | 🟡 Yellow | OAT | `oat`, `e2e`, `qa` |
 | 🟣 Magenta | Integration | `int`, `integration` |
 | ⚪ White | Sandbox | `sandbox`, `sbx` |

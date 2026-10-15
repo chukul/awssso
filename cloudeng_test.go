@@ -25,6 +25,42 @@ func TestDetectEnvironment(t *testing.T) {
 		{"my-test-env", "Developer", "development"},
 		{"dev-account", "AdminRole", "development"},
 		{"random-account", "SomeRole", "unknown"},
+
+		// real profile naming: accor-<service>-<env>
+		{"accor-acp-container-orch-dev", "", "development"},
+		{"accor-acp-container-orch-oat", "", "oat"},
+		{"accor-acp-container-orch-pro", "", "production"},
+		{"accor-acp-coreapihub-nopro", "", "nonprod"},
+		{"accor-acp-coreapihub-pro", "", "production"},
+		{"accor-softfactory-int", "", "integration"},
+		{"accor-master-pro", "", "production"},
+		{"accor-soa-oat", "", "oat"},
+
+		// keywords inside longer words must not match ("delivery" contains "live")
+		{"accor-sftpdelivery-oat", "", "oat"},
+		{"accor-sftpdelivery-dev", "", "development"},
+		{"accor-sftpdelivery1", "", "unknown"},
+		{"printer-float-internal", "", "unknown"},
+		{"innopro-svc", "", "unknown"},
+
+		// non-production variants
+		{"x-non-prod", "", "nonprod"},
+		{"x_nonprod_y", "", "nonprod"},
+		{"x-nopro2", "", "nonprod"},
+		{"x-NoPro", "", "nonprod"},
+
+		// pre-prod is staging, not production
+		{"x-pre-prod", "", "staging"},
+		{"x-preprod", "", "staging"},
+		{"x-pre_production-1", "", "staging"},
+
+		// trailing digits, role names, precedence
+		{"x-dev1", "", "development"},
+		{"x-oat2", "", "oat"},
+		{"x", "DevRole", "development"},
+		{"x-dev", "ProvisioningRole", "development"},
+		{"x-dev", "AWSAdministratorAccess", "development"},
+		{"dev-int", "", "integration"},
 	}
 
 	for _, tt := range tests {
@@ -40,9 +76,54 @@ func TestDetectEnvironment(t *testing.T) {
 	}
 }
 
+func TestDetectEnvironmentOverride(t *testing.T) {
+	tests := []struct {
+		name     string
+		override string
+		expected string
+	}{
+		{"accor-sftpdelivery1", "production", "production"},
+		{"accor-sftpdelivery-dev", "production", "production"},
+		{"accor-foo-pro", "development", "development"},
+		{"accor-foo-pro", "nonprod", "nonprod"},
+		{"accor-foo-pro", "bogus", "production"},
+		{"accor-foo-dev", "", "development"},
+	}
+
+	for _, tt := range tests {
+		profile := &AWSProfile{Name: tt.name, Environment: tt.override}
+		if got := detectEnvironment(profile); got != tt.expected {
+			t.Errorf("detectEnvironment(name=%q, override=%q) = %q, want %q",
+				tt.name, tt.override, got, tt.expected)
+		}
+	}
+}
+
+func TestProfileOrMock(t *testing.T) {
+	config := &AWSConfig{Profiles: map[string]*AWSProfile{
+		"accor-sftpdelivery1": {Name: "accor-sftpdelivery1", Environment: "production"},
+	}}
+
+	if got := detectEnvironment(profileOrMock("accor-sftpdelivery1", config)); got != "production" {
+		t.Errorf("configured profile with override = %q, want production", got)
+	}
+	if got := detectEnvironment(profileOrMock("accor-foo-oat", config)); got != "oat" {
+		t.Errorf("unconfigured profile falls back to name detection, got %q, want oat", got)
+	}
+	if got := detectEnvironment(profileOrMock("accor-foo-oat", nil)); got != "oat" {
+		t.Errorf("nil config falls back to name detection, got %q, want oat", got)
+	}
+}
+
 func TestGetEnvironmentColor(t *testing.T) {
 	if getEnvironmentColor("production") != Red {
 		t.Error("production should be Red")
+	}
+	if getEnvironmentColor("nonprod") != Blue {
+		t.Error("nonprod should be Blue")
+	}
+	if getEnvironmentSymbol("nonprod") != "🔵" {
+		t.Error("nonprod should be 🔵")
 	}
 	if getEnvironmentColor("staging") != Yellow {
 		t.Error("staging should be Yellow")

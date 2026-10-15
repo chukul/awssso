@@ -23,14 +23,17 @@ func runPrompt(install bool) {
 		return // nothing when no profile is active
 	}
 
-	mock := &AWSProfile{Name: profile}
-	env := detectEnvironment(mock)
+	config, configErr := loadAWSConfig()
+	if configErr != nil {
+		config = nil
+	}
+	env := detectEnvironment(profileOrMock(profile, config))
 	symbol := getEnvironmentSymbol(env)
 	color := getEnvironmentColor(env)
 
 	// Append token expiry warning when < 15 min remain
 	suffix := ""
-	if config, err := loadAWSConfig(); err == nil {
+	if config != nil {
 		if p, ok := config.Profiles[profile]; ok {
 			if tokenPath, pathErr := getSSOTokenPath(p, config); pathErr == nil {
 				if token, readErr := readSSOToken(tokenPath); readErr == nil {

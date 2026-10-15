@@ -295,8 +295,10 @@ func replPrompt() string {
 	if profile == "" {
 		return "\033[1;36mawssso\033[0m › "
 	}
-	mock := &AWSProfile{Name: profile}
-	color := getEnvironmentColor(detectEnvironment(mock))
+	if cachedReplConfig == nil {
+		cachedReplConfig, _ = loadAWSConfig()
+	}
+	color := getEnvironmentColor(detectEnvironment(profileOrMock(profile, cachedReplConfig)))
 	badge := tokenBadge(profile, color)
 	return fmt.Sprintf("\033[1;36mawssso\033[0m [%s] › ", badge)
 }
@@ -371,8 +373,8 @@ func runBasicREPL(binaryPath string) {
 			return strings.TrimSpace(line), ok
 		}
 
-		var buf []byte   // line content
-		cursor := 0      // insert position within buf
+		var buf []byte // line content
+		cursor := 0    // insert position within buf
 		historyIdx = len(history)
 
 		// redraw redraws from cursor to end of line and repositions cursor.
