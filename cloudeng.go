@@ -5,57 +5,79 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
+var (
+	camelBoundary  = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	nonProdPattern = regexp.MustCompile(`(^|[^a-z0-9])non?[-_.\s]?pro(?:d|duction)?([^a-z]|$)`)
+	preProdPattern = regexp.MustCompile(`(^|[^a-z0-9])pre[-_.\s]?prod(?:uction)?([^a-z]|$)`)
+)
+
+// envTokens splits a name into whole words so "oat" matches "app-oat" but "live" does not match "delivery".
+func envTokens(s string) map[string]bool {
+	s = strings.ToLower(camelBoundary.ReplaceAllString(s, "${1} ${2}"))
+	s = nonProdPattern.ReplaceAllString(s, "${1}nonprod${2}")
+	s = preProdPattern.ReplaceAllString(s, "${1}preprod${2}")
+	tokens := map[string]bool{}
+	for _, t := range strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		tokens[t] = true
+		tokens[strings.TrimRight(t, "0123456789")] = true
+	}
+	return tokens
+}
+
+var validEnvironments = map[string]bool{
+	"production": true, "nonprod": true, "staging": true, "oat": true,
+	"integration": true, "sandbox": true, "development": true,
+}
+
+// environmentTiers is ordered by precedence: the first tier with a matching keyword wins.
+var environmentTiers = []struct {
+	env      string
+	keywords []string
+}{
+	{"production", []string{"prod", "production", "prd", "pro", "live", "master"}},
+	{"nonprod", []string{"nonprod"}},
+	{"staging", []string{"staging", "stage", "stg", "uat", "preprod"}},
+	{"oat", []string{"oat", "e2e", "qa"}},
+	{"integration", []string{"int", "integration"}},
+	{"sandbox", []string{"sandbox", "sbx"}},
+	{"development", []string{"dev", "development", "test"}},
+}
+
+// profileOrMock returns the configured profile, or a name-only profile when it is not in config.
+func profileOrMock(name string, config *AWSConfig) *AWSProfile {
+	if config != nil {
+		if p, ok := config.Profiles[name]; ok {
+			return p
+		}
+	}
+	return &AWSProfile{Name: name}
+}
+
 func detectEnvironment(profile *AWSProfile) string {
-	name := strings.ToLower(profile.Name)
-	role := strings.ToLower(profile.SSORoleName)
-
-	prodKeywords := []string{"prod", "production", "prd", "pro", "live", "master"}
-	for _, keyword := range prodKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "production"
-		}
+	if validEnvironments[profile.Environment] {
+		return profile.Environment
 	}
 
-	stagingKeywords := []string{"staging", "stage", "stg", "uat", "preprod", "pre-prod"}
-	for _, keyword := range stagingKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "staging"
+	tokens := envTokens(profile.Name)
+	for t := range envTokens(profile.SSORoleName) {
+		tokens[t] = true
+	}
+	for _, tier := range environmentTiers {
+		for _, keyword := range tier.keywords {
+			if tokens[keyword] {
+				return tier.env
+			}
 		}
 	}
-
-	oatKeywords := []string{"oat", "e2e", "qa"}
-	for _, keyword := range oatKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "oat"
-		}
-	}
-
-	intKeywords := []string{"int", "integration"}
-	for _, keyword := range intKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "integration"
-		}
-	}
-
-	sandboxKeywords := []string{"sandbox", "sbx"}
-	for _, keyword := range sandboxKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "sandbox"
-		}
-	}
-
-	devKeywords := []string{"dev", "development", "test"}
-	for _, keyword := range devKeywords {
-		if strings.Contains(name, keyword) || strings.Contains(role, keyword) {
-			return "development"
-		}
-	}
-
 	return "unknown"
 }
 
@@ -63,6 +85,8 @@ func getEnvironmentColor(env string) string {
 	switch env {
 	case "production":
 		return Red
+	case "nonprod":
+		return Blue
 	case "staging":
 		return Yellow
 	case "oat":
@@ -82,6 +106,8 @@ func getEnvironmentSymbol(env string) string {
 	switch env {
 	case "production":
 		return "🔴"
+	case "nonprod":
+		return "🔵"
 	case "staging":
 		return "🟡"
 	case "oat":
@@ -141,7 +167,6 @@ func getActiveProfilePath() (string, error) {
 	}
 	return filepath.Join(home, ".aws", "sso", "active_profile"), nil
 }
-
 
 // writeActiveProfile persists the selected profile name so the REPL shell
 // can read it back and update its own environment after a subprocess exits.

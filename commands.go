@@ -1476,10 +1476,10 @@ func runRefreshPicker(ctx context.Context, config *AWSConfig, force bool, privat
 		mock := &AWSProfile{SSOSession: name}
 		status, remaining := profileTokenStatus(mock, config)
 		rows = append(rows, row{
-			name:     name,
-			startURL: sess.SSOStartURL,
-			region:   sess.SSORegion,
-			status:   status,
+			name:      name,
+			startURL:  sess.SSOStartURL,
+			region:    sess.SSORegion,
+			status:    status,
 			remaining: remaining,
 		})
 	}

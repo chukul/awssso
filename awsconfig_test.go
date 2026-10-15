@@ -8,6 +8,109 @@ import (
 	"testing"
 )
 
+func TestLoadAWSConfigAwsssoEnvironment(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "aws-config-env-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configContent := `
+[profile accor-sftpdelivery1]
+sso_session = s
+sso_account_id = 123456789012
+sso_role_name = Admin
+awssso_environment = Production
+
+[profile accor-sftpdelivery-dev]
+sso_session = s
+sso_account_id = 123456789012
+sso_role_name = Admin
+`
+	configPath := filepath.Join(tempDir, "config")
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := loadAWSConfigFromPath(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	if got := config.Profiles["accor-sftpdelivery1"].Environment; got != "production" {
+		t.Errorf("awssso_environment should be parsed lowercased, got %q", got)
+	}
+	if got := detectEnvironment(config.Profiles["accor-sftpdelivery1"]); got != "production" {
+		t.Errorf("accor-sftpdelivery1 should be production via override, got %q", got)
+	}
+	if got := config.Profiles["accor-sftpdelivery-dev"].Environment; got != "" {
+		t.Errorf("profile without override should have empty Environment, got %q", got)
+	}
+	if got := detectEnvironment(config.Profiles["accor-sftpdelivery-dev"]); got != "development" {
+		t.Errorf("accor-sftpdelivery-dev should be development, got %q", got)
+	}
+}
+
+func TestWriteAWSProfilePreservesEnvironmentOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	oldHome := cachedHomeDir
+	cachedHomeDir = tempDir
+	defer func() { cachedHomeDir = oldHome }()
+
+	configPath := filepath.Join(tempDir, ".aws", "config")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	initial := `[profile accor-sftpdelivery1]
+sso_session = s
+sso_account_id = 111111111111
+sso_role_name = Admin
+awssso_environment = production
+
+[profile other]
+region = eu-west-1
+`
+	if err := os.WriteFile(configPath, []byte(initial), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rewrite without specifying Environment: the existing override must survive.
+	err := writeAWSProfile("accor-sftpdelivery1", &AWSProfile{
+		Name: "accor-sftpdelivery1", SSOSession: "s", SSOAccountID: "222222222222", SSORoleName: "Admin",
+	})
+	if err != nil {
+		t.Fatalf("writeAWSProfile failed: %v", err)
+	}
+
+	config, err := loadAWSConfigFromPath(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := config.Profiles["accor-sftpdelivery1"]
+	if p.Environment != "production" {
+		t.Errorf("override should survive rewrite, got %q", p.Environment)
+	}
+	if p.SSOAccountID != "222222222222" {
+		t.Errorf("rewrite should update account id, got %q", p.SSOAccountID)
+	}
+	if config.Profiles["other"].Region != "eu-west-1" {
+		t.Error("unrelated profile should be untouched")
+	}
+
+	// An explicit Environment on the new profile replaces the old one.
+	err = writeAWSProfile("accor-sftpdelivery1", &AWSProfile{
+		Name: "accor-sftpdelivery1", SSOSession: "s", SSOAccountID: "222222222222", SSORoleName: "Admin",
+		Environment: "nonprod",
+	})
+	if err != nil {
+		t.Fatalf("writeAWSProfile failed: %v", err)
+	}
+	config, _ = loadAWSConfigFromPath(configPath)
+	if got := config.Profiles["accor-sftpdelivery1"].Environment; got != "nonprod" {
+		t.Errorf("explicit Environment should win, got %q", got)
+	}
+}
+
 func TestLoadAWSConfigFromPath(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "aws-config-test")
 	if err != nil {

@@ -258,7 +258,6 @@ func newStdinScanner() *bufio.Scanner {
 	return bufio.NewScanner(os.Stdin)
 }
 
-
 // shortName extracts a short identifier from an SSO session name or URL.
 func shortName(s string) string {
 	s = strings.TrimPrefix(s, "https://")
